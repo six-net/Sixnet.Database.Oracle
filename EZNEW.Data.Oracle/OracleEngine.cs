@@ -593,7 +593,7 @@ namespace EZNEW.Data.Oracle
                     {
                         orderString = $" ORDER BY {tranResult.OrderString}";
                     }
-                    cmdText.Append($"{tranResult.PreScript}SELECT * FROM (SELECT COUNT({translator.ObjectPetName}.{defaultFieldName}) OVER() AS QueryDataTotalCount,ROW_NUMBER() OVER({orderString}) AS EZNEW_ROWNUMBER,{string.Join(",", formatQueryFields)} FROM {objectName} {translator.ObjectPetName}{joinScript} {conditionString}) WHERE EZNEW_ROWNUMBER BETWEEN {beginRow} AND {beginRow + size}");
+                    cmdText.Append($"{tranResult.PreScript}SELECT * FROM (SELECT COUNT({translator.ObjectPetName}.{defaultFieldName}) OVER() AS QueryDataTotalCount,ROW_NUMBER() OVER({orderString}) AS EZNEW_ROWNUMBER,{string.Join(",", formatQueryFields)} FROM {objectName} {translator.ObjectPetName} {joinScript} {conditionString}) WHERE EZNEW_ROWNUMBER BETWEEN {beginRow} AND {beginRow + size}");
                     break;
             }
 
