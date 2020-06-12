@@ -1,6 +1,6 @@
 # EZNEW.Data.Oracle
 
-EZNEW.Data.Oracle is an implementation based on EZNEW.Data for Oracle database access
+Provides access to Oracle databases based on the EZNEW development framework
 
 # Reporting issues and bugs
 
