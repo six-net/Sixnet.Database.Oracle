@@ -10,6 +10,7 @@ If you have any questions or Suggestions, you can report to us via email,to the 
 
 These are some other repos for related projects:
 
+  * [EZNEW](https://github.com/eznew-net/EZNEW)-A simple, easy-to-use, flexible, and efficient .NET development framework
   * [EZNEW.Data.SqlServer](https://github.com/eznew-net/EZNEW.Data.SqlServer)-Provides access to SQL Server databases based on the EZNEW development framework
   * [EZNEW.Data.MySQL](https://github.com/eznew-net/EZNEW.Data.MySQL)-Provides access to MySQL databases based on the EZNEW development framework
   * [EZNEW.Web](https://github.com/eznew-net/EZNEW.Web)-ASP.NET development tool library
