@@ -1,31 +1,29 @@
-﻿using Dapper;
-using EZNEW.Data.Config;
-using EZNEW.Develop.Entity;
-using EZNEW.Develop.CQuery;
-using EZNEW.Develop.CQuery.Translator;
-using EZNEW.Develop.Command;
-using EZNEW.Framework.Extension;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using EZNEW.Develop.Command.Modify;
-using EZNEW.Framework.Fault;
+using EZNEW.Fault;
 using EZNEW.Develop.DataAccess;
-using Oracle.ManagedDataAccess.Client;
+using EZNEW.Develop.Entity;
+using EZNEW.Develop.CQuery;
+using EZNEW.Develop.CQuery.Translator;
+using EZNEW.Develop.Command;
+using EZNEW.Dapper;
+using EZNEW.Data.Configuration;
 
 namespace EZNEW.Data.Oracle
 {
     /// <summary>
-    /// imeplements dbengine for oracle
+    /// Imeplements database engine for oracle
     /// </summary>
-    public class OracleEngine : IDbEngine
+    public class OracleEngine : IDatabaseEngine
     {
-        static readonly string fieldFormatKey = ((int)ServerType.Oracle).ToString();
+        static readonly string fieldFormatKey = ((int)DatabaseServerType.Oracle).ToString();
         const string parameterPrefix = ":";
-        static readonly Dictionary<CalculateOperator, string> CalculateOperatorDict = new Dictionary<CalculateOperator, string>(4)
+        static readonly Dictionary<CalculateOperator, string> CalculateOperatorDictionary = new Dictionary<CalculateOperator, string>(4)
         {
             [CalculateOperator.Add] = "+",
             [CalculateOperator.Subtract] = "-",
@@ -33,7 +31,7 @@ namespace EZNEW.Data.Oracle
             [CalculateOperator.Divide] = "/",
         };
 
-        static readonly Dictionary<OperateType, string> AggregateFunctionDict = new Dictionary<OperateType, string>(5)
+        static readonly Dictionary<OperateType, string> AggregateFunctionDictionary = new Dictionary<OperateType, string>(5)
         {
             [OperateType.Max] = "MAX",
             [OperateType.Min] = "MIN",
@@ -42,66 +40,90 @@ namespace EZNEW.Data.Oracle
             [OperateType.Count] = "COUNT",
         };
 
-        #region execute
+        #region Execute
 
         /// <summary>
-        /// execute command
+        /// Execute command
         /// </summary>
-        /// <typeparam name="T">data type</typeparam>
         /// <param name="server">server</param>
         /// <param name="executeOption">execute option</param>
-        /// <param name="cmds">command</param>
+        /// <param name="commands">commands</param>
         /// <returns>data numbers</returns>
-        public int Execute(ServerInfo server, CommandExecuteOption executeOption, params ICommand[] cmds)
+        public int Execute(DatabaseServer server, CommandExecuteOption executeOption, IEnumerable<ICommand> commands)
         {
-            return ExecuteAsync(server, executeOption, cmds).Result;
+            return ExecuteAsync(server, executeOption, commands).Result;
         }
 
         /// <summary>
-        /// execute command
+        /// Execute command
         /// </summary>
-        /// <typeparam name="T">data type</typeparam>
         /// <param name="server">server</param>
         /// <param name="executeOption">execute option</param>
-        /// <param name="cmds">command</param>
+        /// <param name="commands">commands</param>
         /// <returns>data numbers</returns>
-        public async Task<int> ExecuteAsync(ServerInfo server, CommandExecuteOption executeOption, params ICommand[] cmds)
+        public int Execute(DatabaseServer server, CommandExecuteOption executeOption, params ICommand[] commands)
+        {
+            return ExecuteAsync(server, executeOption, commands).Result;
+        }
+
+        /// <summary>
+        /// Execute command
+        /// </summary>
+        /// <param name="server">server</param>
+        /// <param name="executeOption">execute option</param>
+        /// <param name="commands">commands</param>
+        /// <returns>data numbers</returns>
+        public async Task<int> ExecuteAsync(DatabaseServer server, CommandExecuteOption executeOption, IEnumerable<ICommand> commands)
         {
             #region group execute commands
 
             IQueryTranslator translator = OracleFactory.GetQueryTranslator(server);
-            List<DbExecuteCommand> executeCommands = new List<DbExecuteCommand>();
-            var batchExecuteConfig = DataManager.GetBatchExecuteConfig(server.ServerType) ?? BatchExecuteConfig.Default;
+            List<DatabaseExecuteCommand> executeCommands = new List<DatabaseExecuteCommand>();
+            var batchExecuteConfig = DataManager.GetBatchExecuteConfiguration(server.ServerType) ?? BatchExecuteConfiguration.Default;
             var groupStatementsCount = batchExecuteConfig.GroupStatementsCount;
             groupStatementsCount = groupStatementsCount < 0 ? 1 : groupStatementsCount;
             var groupParameterCount = batchExecuteConfig.GroupParametersCount;
             groupParameterCount = groupParameterCount < 0 ? 1 : groupParameterCount;
             StringBuilder commandTextBuilder = new StringBuilder();
-            CmdParameters parameters = null;
+            CommandParameters parameters = null;
             int statementsCount = 0;
             bool forceReturnValue = false;
-            foreach (var cmd in cmds)
+            int cmdCount = 0;
+
+            DatabaseExecuteCommand GetGroupExecuteCommand()
             {
-                DbExecuteCommand executeCommand = GetExecuteDbCommand(translator, cmd as RdbCommand);
+                var executeCommand = new DatabaseExecuteCommand()
+                {
+                    CommandText = commandTextBuilder.ToString(),
+                    CommandType = CommandType.Text,
+                    ForceReturnValue = forceReturnValue,
+                    Parameters = parameters
+                };
+                statementsCount = 0;
+                translator.ParameterSequence = 0;
+                commandTextBuilder.Clear();
+                parameters = null;
+                forceReturnValue = false;
+                return executeCommand;
+            }
+
+            foreach (var command in commands)
+            {
+                DatabaseExecuteCommand executeCommand = GetExecuteDbCommand(translator, command as RdbCommand);
                 if (executeCommand == null)
                 {
                     continue;
                 }
+
+                //Trace log
+                OracleFactory.LogExecuteCommand(executeCommand);
+
+                cmdCount++;
                 if (executeCommand.PerformAlone)
                 {
                     if (statementsCount > 0)
                     {
-                        executeCommands.Add(new DbExecuteCommand()
-                        {
-                            CommandText = commandTextBuilder.ToString(),
-                            CommandType = CommandType.Text,
-                            ForceReturnValue = true,
-                            Parameters = parameters
-                        });
-                        statementsCount = 0;
-                        translator.ParameterSequence = 0;
-                        commandTextBuilder.Clear();
-                        parameters = null;
+                        executeCommands.Add(GetGroupExecuteCommand());
                     }
                     executeCommands.Add(executeCommand);
                     continue;
@@ -112,33 +134,30 @@ namespace EZNEW.Data.Oracle
                 statementsCount++;
                 if (translator.ParameterSequence >= groupParameterCount || statementsCount >= groupStatementsCount)
                 {
-                    executeCommands.Add(new DbExecuteCommand()
-                    {
-                        CommandText = commandTextBuilder.ToString(),
-                        CommandType = CommandType.Text,
-                        ForceReturnValue = true,
-                        Parameters = parameters
-                    });
-                    statementsCount = 0;
-                    translator.ParameterSequence = 0;
-                    commandTextBuilder.Clear();
-                    parameters = null;
+                    executeCommands.Add(GetGroupExecuteCommand());
                 }
             }
             if (statementsCount > 0)
             {
-                executeCommands.Add(new DbExecuteCommand()
-                {
-                    CommandText = commandTextBuilder.ToString(),
-                    CommandType = CommandType.Text,
-                    ForceReturnValue = true,
-                    Parameters = parameters
-                });
+                executeCommands.Add(GetGroupExecuteCommand());
             }
 
             #endregion
 
-            return await ExecuteCommandAsync(server, executeOption, executeCommands, executeOption?.ExecuteByTransaction ?? cmds.Length > 1).ConfigureAwait(false);
+            return await ExecuteCommandAsync(server, executeOption, executeCommands, executeOption?.ExecuteByTransaction ?? cmdCount > 1).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Execute command
+        /// </summary>
+        /// <param name="server">server</param>
+        /// <param name="executeOption">execute option</param>
+        /// <param name="commands">commands</param>
+        /// <returns>data numbers</returns>
+        public async Task<int> ExecuteAsync(DatabaseServer server, CommandExecuteOption executeOption, params ICommand[] commands)
+        {
+            IEnumerable<ICommand> cmdCollection = commands;
+            return await ExecuteAsync(server, executeOption, cmdCollection).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -149,7 +168,7 @@ namespace EZNEW.Data.Oracle
         /// <param name="executeCommands">execute commands</param>
         /// <param name="useTransaction">use transaction</param>
         /// <returns></returns>
-        async Task<int> ExecuteCommandAsync(ServerInfo server, CommandExecuteOption executeOption, IEnumerable<DbExecuteCommand> executeCommands, bool useTransaction)
+        async Task<int> ExecuteCommandAsync(DatabaseServer server, CommandExecuteOption executeOption, IEnumerable<DatabaseExecuteCommand> executeCommands, bool useTransaction)
         {
             int resultValue = 0;
             bool success = true;
@@ -162,11 +181,11 @@ namespace EZNEW.Data.Oracle
                 }
                 try
                 {
-                    foreach (var cmd in executeCommands)
+                    foreach (var command in executeCommands)
                     {
-                        var cmdDefinition = new CommandDefinition(cmd.CommandText, ConvertCmdParameters(cmd.Parameters), transaction: transaction, commandType: cmd.CommandType, cancellationToken: executeOption?.CancellationToken ?? default);
+                        var cmdDefinition = new CommandDefinition(command.CommandText, ConvertCmdParameters(command.Parameters), transaction: transaction, commandType: command.CommandType, cancellationToken: executeOption?.CancellationToken ?? default);
                         var executeResultValue = await conn.ExecuteAsync(cmdDefinition).ConfigureAwait(false);
-                        success = success && (cmd.ForceReturnValue ? executeResultValue > 0 : true);
+                        success = success && (command.ForceReturnValue ? executeResultValue > 0 : true);
                         resultValue += executeResultValue;
                         if (useTransaction && !success)
                         {
@@ -198,33 +217,41 @@ namespace EZNEW.Data.Oracle
         }
 
         /// <summary>
-        /// get execute db command
+        /// Get database execute command
         /// </summary>
-        /// <param name="cmd">command</param>
+        /// <param name="command">command</param>
         /// <returns></returns>
-        DbExecuteCommand GetExecuteDbCommand(IQueryTranslator queryTranslator, RdbCommand cmd)
+        DatabaseExecuteCommand GetExecuteDbCommand(IQueryTranslator queryTranslator, RdbCommand command)
         {
-            if (cmd.ExecuteMode == CommandExecuteMode.CommandText)
+            DatabaseExecuteCommand GetTextCommand()
             {
-                return new DbExecuteCommand()
+                return new DatabaseExecuteCommand()
                 {
-                    CommandText = cmd.CommandText,
-                    Parameters = ParseParameters(cmd.Parameters),
-                    CommandType = GetCommandType(cmd),
+                    CommandText = command.CommandText,
+                    Parameters = ParseParameters(command.Parameters),
+                    CommandType = GetCommandType(command),
+                    ForceReturnValue = command.MustReturnValueOnSuccess,
                     HasPreScript = true
                 };
             }
-            DbExecuteCommand executeCommand = null;
-            switch (cmd.Operate)
+            if (command.ExecuteMode == CommandExecuteMode.CommandText)
+            {
+                return GetTextCommand();
+            }
+            DatabaseExecuteCommand executeCommand = null;
+            switch (command.OperateType)
             {
                 case OperateType.Insert:
-                    executeCommand = GetInsertExecuteDbCommand(queryTranslator, cmd);
+                    executeCommand = GetInsertExecuteDbCommand(queryTranslator, command);
                     break;
                 case OperateType.Update:
-                    executeCommand = GetUpdateExecuteDbCommand(queryTranslator, cmd);
+                    executeCommand = GetUpdateExecuteDbCommand(queryTranslator, command);
                     break;
                 case OperateType.Delete:
-                    executeCommand = GetDeleteExecuteDbCommand(queryTranslator, cmd);
+                    executeCommand = GetDeleteExecuteDbCommand(queryTranslator, command);
+                    break;
+                default:
+                    executeCommand = GetTextCommand();
                     break;
             }
             executeCommand.HasPreScript = true;
@@ -232,56 +259,45 @@ namespace EZNEW.Data.Oracle
         }
 
         /// <summary>
-        /// get insert execute DbCommand
+        /// Get insert execute command
         /// </summary>
         /// <param name="translator">translator</param>
-        /// <param name="cmd">cmd</param>
+        /// <param name="command">command</param>
         /// <returns></returns>
-        DbExecuteCommand GetInsertExecuteDbCommand(IQueryTranslator translator, RdbCommand cmd)
+        DatabaseExecuteCommand GetInsertExecuteDbCommand(IQueryTranslator translator, RdbCommand command)
         {
-            string cmdText = string.Empty;
-            CmdParameters parameters = null;
-            if (cmd.ExecuteMode == CommandExecuteMode.CommandText)
+            string objectName = DataManager.GetEntityObjectName(DatabaseServerType.Oracle, command.EntityType, command.ObjectName);
+            var fields = DataManager.GetEditFields(DatabaseServerType.Oracle, command.EntityType);
+            var insertFormatResult = FormatInsertFields(fields, command.Parameters, translator.ParameterSequence);
+            if (insertFormatResult == null)
             {
-                cmdText = cmd.CommandText;
-                parameters = ParseParameters(cmd.Parameters);
+                return null;
             }
-            else
-            {
-                string objectName = DataManager.GetEntityObjectName(ServerType.Oracle, cmd.EntityType, cmd.ObjectName);
-                var fields = DataManager.GetEditFields(ServerType.Oracle, cmd.EntityType);
-                var insertFormatResult = FormatInsertFields(fields, cmd.Parameters, translator.ParameterSequence);
-                if (insertFormatResult == null)
-                {
-                    return null;
-                }
-                cmdText = $"INSERT INTO {objectName} ({string.Join(",", insertFormatResult.Item1)}) VALUES ({string.Join(",", insertFormatResult.Item2)})";
-                parameters = insertFormatResult.Item3;
-                translator.ParameterSequence += fields.Count;
-            }
-            CommandType commandType = GetCommandType(cmd);
-            return new DbExecuteCommand()
+            string cmdText = $"INSERT INTO {objectName} ({string.Join(",", insertFormatResult.Item1)}) VALUES ({string.Join(",", insertFormatResult.Item2)})";
+            CommandParameters parameters = insertFormatResult.Item3;
+            translator.ParameterSequence += fields.Count;
+            return new DatabaseExecuteCommand()
             {
                 CommandText = cmdText,
-                CommandType = commandType,
-                ForceReturnValue = cmd.MustReturnValueOnSuccess,
+                CommandType = GetCommandType(command),
+                ForceReturnValue = command.MustReturnValueOnSuccess,
                 Parameters = parameters
             };
         }
 
         /// <summary>
-        /// get update execute command
+        /// Get update execute command
         /// </summary>
         /// <param name="translator">translator</param>
-        /// <param name="cmd">cmd</param>
+        /// <param name="command">command</param>
         /// <returns></returns>
-        DbExecuteCommand GetUpdateExecuteDbCommand(IQueryTranslator translator, RdbCommand cmd)
+        DatabaseExecuteCommand GetUpdateExecuteDbCommand(IQueryTranslator translator, RdbCommand command)
         {
             #region query translate
 
-            var tranResult = translator.Translate(cmd.Query);
+            var tranResult = translator.Translate(command.Query);
             string conditionString = string.Empty;
-            if (!tranResult.ConditionString.IsNullOrEmpty())
+            if (!string.IsNullOrWhiteSpace(tranResult.ConditionString))
             {
                 conditionString += "WHERE " + tranResult.ConditionString;
             }
@@ -290,87 +306,76 @@ namespace EZNEW.Data.Oracle
 
             #endregion
 
-            string cmdText = string.Empty;
-            CmdParameters parameters = ParseParameters(cmd.Parameters);
-            if (cmd.ExecuteMode == CommandExecuteMode.CommandText)
+            #region script
+
+            CommandParameters parameters = ParseParameters(command.Parameters) ?? new CommandParameters();
+            string objectName = DataManager.GetEntityObjectName(DatabaseServerType.Oracle, command.EntityType, command.ObjectName);
+            var fields = GetFields(command.EntityType, command.Fields);
+            int parameterSequence = translator.ParameterSequence;
+            List<string> updateSetArray = new List<string>();
+            foreach (var field in fields)
             {
-                cmdText = cmd.CommandText;
-            }
-            else
-            {
-                parameters = parameters ?? new CmdParameters();
-                string objectName = DataManager.GetEntityObjectName(ServerType.Oracle, cmd.EntityType, cmd.ObjectName);
-                var fields = GetFields(cmd.EntityType, cmd.Fields);
-                int parameterSequence = translator.ParameterSequence;
-                List<string> updateSetArray = new List<string>();
-                foreach (var field in fields)
+                var parameterValue = parameters.GetParameterValue(field.PropertyName);
+                var parameterName = field.PropertyName;
+                string newValueExpression = string.Empty;
+                if (parameterValue != null)
                 {
-                    var parameterValue = parameters.GetParameterValue(field.PropertyName);
-                    var parameterName = field.PropertyName;
-                    string newValueExpression = string.Empty;
-                    if (parameterValue != null)
+                    parameterSequence++;
+                    parameterName = FormatParameterName(parameterName, parameterSequence);
+                    parameters.Rename(field.PropertyName, parameterName);
+                    if (parameterValue is IModifyValue)
                     {
-                        parameterSequence++;
-                        parameterName = FormatParameterName(parameterName, parameterSequence);
-                        parameters.Rename(field.PropertyName, parameterName);
-                        if (parameterValue is IModifyValue)
+                        var modifyValue = parameterValue as IModifyValue;
+                        parameters.ModifyValue(parameterName, modifyValue.Value);
+                        if (parameterValue is CalculateModifyValue)
                         {
-                            var modifyValue = parameterValue as IModifyValue;
-                            parameters.ModifyValue(parameterName, modifyValue.Value);
-                            if (parameterValue is CalculateModifyValue)
-                            {
-                                var calculateModifyValue = parameterValue as CalculateModifyValue;
-                                string calChar = GetCalculateChar(calculateModifyValue.Operator);
-                                newValueExpression = $"{translator.ObjectPetName}.{field.FieldName}{calChar}{parameterPrefix}{parameterName}";
-                            }
+                            var calculateModifyValue = parameterValue as CalculateModifyValue;
+                            string calChar = GetCalculateChar(calculateModifyValue.Operator);
+                            newValueExpression = $"{translator.ObjectPetName}.{field.FieldName}{calChar}{parameterPrefix}{parameterName}";
                         }
                     }
-                    if (string.IsNullOrWhiteSpace(newValueExpression))
-                    {
-                        newValueExpression = $"{parameterPrefix}{parameterName}";
-                    }
-                    updateSetArray.Add($"{translator.ObjectPetName}.{field.FieldName}={newValueExpression}");
                 }
-                cmdText = $"{preScript}UPDATE {objectName} {translator.ObjectPetName} {joinScript} SET {string.Join(",", updateSetArray.ToArray())} {conditionString}";
-                translator.ParameterSequence = parameterSequence;
-            }
-            //combine parameters
-            if (tranResult.Parameters != null)
-            {
-                var queryParameters = ParseParameters(tranResult.Parameters);
-                if (parameters != null)
+                if (string.IsNullOrWhiteSpace(newValueExpression))
                 {
-                    parameters.Union(queryParameters);
+                    newValueExpression = $"{parameterPrefix}{parameterName}";
                 }
-                else
-                {
-                    parameters = queryParameters;
-                }
+                updateSetArray.Add($"{translator.ObjectPetName}.{field.FieldName}={newValueExpression}");
             }
-            CommandType commandType = GetCommandType(cmd);
-            return new DbExecuteCommand()
+            string cmdText = $"{preScript}UPDATE {objectName} {translator.ObjectPetName} {joinScript} SET {string.Join(",", updateSetArray)} {conditionString}";
+            translator.ParameterSequence = parameterSequence;
+
+            #endregion
+
+            #region parameter
+
+            var queryParameters = ParseParameters(tranResult.Parameters);
+            parameters.Union(queryParameters);
+
+            #endregion
+
+            return new DatabaseExecuteCommand()
             {
                 CommandText = cmdText,
-                CommandType = commandType,
-                ForceReturnValue = cmd.MustReturnValueOnSuccess,
+                CommandType = GetCommandType(command),
+                ForceReturnValue = command.MustReturnValueOnSuccess,
                 Parameters = parameters,
                 HasPreScript = !string.IsNullOrWhiteSpace(preScript)
             };
         }
 
         /// <summary>
-        /// get delete execute command
+        /// Get delete execute command
         /// </summary>
         /// <param name="translator">translator</param>
-        /// <param name="cmd">cmd</param>
+        /// <param name="command">command</param>
         /// <returns></returns>
-        DbExecuteCommand GetDeleteExecuteDbCommand(IQueryTranslator translator, RdbCommand cmd)
+        DatabaseExecuteCommand GetDeleteExecuteDbCommand(IQueryTranslator translator, RdbCommand command)
         {
             #region query translate
 
-            var tranResult = translator.Translate(cmd.Query);
+            var tranResult = translator.Translate(command.Query);
             string conditionString = string.Empty;
-            if (!tranResult.ConditionString.IsNullOrEmpty())
+            if (!string.IsNullOrWhiteSpace(tranResult.ConditionString))
             {
                 conditionString += "WHERE " + tranResult.ConditionString;
             }
@@ -379,36 +384,26 @@ namespace EZNEW.Data.Oracle
 
             #endregion
 
-            string cmdText;
-            CmdParameters parameters = ParseParameters(cmd.Parameters);
-            if (cmd.ExecuteMode == CommandExecuteMode.CommandText)
-            {
-                cmdText = cmd.CommandText;
-            }
-            else
-            {
-                string objectName = DataManager.GetEntityObjectName(ServerType.Oracle, cmd.EntityType, cmd.ObjectName);
-                cmdText = $"{preScript}DELETE {objectName} {translator.ObjectPetName} {joinScript} {conditionString}";
-            }
-            //combine parameters
-            if (tranResult.Parameters != null)
-            {
-                var queryParameters = ParseParameters(tranResult.Parameters);
-                if (parameters != null)
-                {
-                    parameters.Union(queryParameters);
-                }
-                else
-                {
-                    parameters = queryParameters;
-                }
-            }
-            CommandType commandType = GetCommandType(cmd);
-            return new DbExecuteCommand()
+            #region script
+
+            string objectName = DataManager.GetEntityObjectName(DatabaseServerType.Oracle, command.EntityType, command.ObjectName);
+            string cmdText = $"{preScript}DELETE {objectName} {translator.ObjectPetName} {joinScript} {conditionString}";
+
+            #endregion
+
+            #region parameter
+
+            CommandParameters parameters = ParseParameters(command.Parameters) ?? new CommandParameters();
+            var queryParameters = ParseParameters(tranResult.Parameters);
+            parameters.Union(queryParameters);
+
+            #endregion
+
+            return new DatabaseExecuteCommand()
             {
                 CommandText = cmdText,
-                CommandType = commandType,
-                ForceReturnValue = cmd.MustReturnValueOnSuccess,
+                CommandType = GetCommandType(command),
+                ForceReturnValue = command.MustReturnValueOnSuccess,
                 Parameters = parameters,
                 HasPreScript = !string.IsNullOrWhiteSpace(preScript)
             };
@@ -416,56 +411,56 @@ namespace EZNEW.Data.Oracle
 
         #endregion
 
-        #region query
+        #region Query
 
         /// <summary>
-        /// query data list
+        /// Query datas
         /// </summary>
         /// <typeparam name="T">data type</typeparam>
         /// <param name="server">database server</param>
-        /// <param name="cmd">command</param>
-        /// <returns>data list</returns>
-        public IEnumerable<T> Query<T>(ServerInfo server, ICommand cmd)
+        /// <param name="command">command</param>
+        /// <returns>return datas</returns>
+        public IEnumerable<T> Query<T>(DatabaseServer server, ICommand command)
         {
-            return QueryAsync<T>(server, cmd).Result;
+            return QueryAsync<T>(server, command).Result;
         }
 
         /// <summary>
-        /// query data list
+        /// Query datas
         /// </summary>
         /// <typeparam name="T">data type</typeparam>
         /// <param name="server">database server</param>
-        /// <param name="cmd">command</param>
-        /// <returns>data list</returns>
-        public async Task<IEnumerable<T>> QueryAsync<T>(ServerInfo server, ICommand cmd)
+        /// <param name="command">command</param>
+        /// <returns>return datas</returns>
+        public async Task<IEnumerable<T>> QueryAsync<T>(DatabaseServer server, ICommand command)
         {
-            if (cmd.Query == null)
+            if (command.Query == null)
             {
                 throw new EZNEWException("ICommand.Query is null");
             }
 
-            #region query object translate
+            #region query translate
 
             IQueryTranslator translator = OracleFactory.GetQueryTranslator(server);
-            var tranResult = translator.Translate(cmd.Query);
+            var tranResult = translator.Translate(command.Query);
             string joinScript = tranResult.AllowJoin ? tranResult.JoinScript : string.Empty;
 
             #endregion
 
             #region execute
 
-            StringBuilder cmdText = new StringBuilder();
-            switch (cmd.Query.QueryType)
+            string cmdText;
+            switch (command.Query.QueryType)
             {
                 case QueryCommandType.Text:
-                    cmdText.Append(tranResult.ConditionString);
+                    cmdText = tranResult.ConditionString;
                     break;
                 case QueryCommandType.QueryObject:
                 default:
-                    if (cmd.Query.QuerySize > 0)
+                    if (command.Query.QuerySize > 0)
                     {
-                        string topSizeCondition = $"ROWNUM <= {cmd.Query.QuerySize}";
-                        if (tranResult.ConditionString.IsNullOrEmpty())
+                        string topSizeCondition = $"ROWNUM <= {command.Query.QuerySize}";
+                        if (string.IsNullOrWhiteSpace(tranResult.ConditionString))
                         {
                             tranResult.ConditionString = topSizeCondition;
                         }
@@ -474,118 +469,120 @@ namespace EZNEW.Data.Oracle
                             tranResult.ConditionString = $"{tranResult.ConditionString} AND {topSizeCondition}";
                         }
                     }
-                    string objectName = DataManager.GetEntityObjectName(ServerType.Oracle, cmd.EntityType, cmd.ObjectName);
-                    cmdText.Append($"{tranResult.PreScript}SELECT {string.Join(",", FormatQueryFields(translator.ObjectPetName, cmd.Query, cmd.EntityType, out var defaultFieldName))} FROM {objectName} {translator.ObjectPetName} {joinScript} {(tranResult.ConditionString.IsNullOrEmpty() ? string.Empty : $"WHERE {tranResult.ConditionString}")} ORDER BY {(tranResult.OrderString.IsNullOrEmpty() ? $"{defaultFieldName} DESC" : tranResult.OrderString)}");
+                    string objectName = DataManager.GetEntityObjectName(DatabaseServerType.Oracle, command.EntityType, command.ObjectName);
+                    cmdText = $"{tranResult.PreScript}SELECT {string.Join(",", FormatQueryFields(translator.ObjectPetName, command.Query, command.EntityType, out var defaultFieldName))} FROM {objectName} {translator.ObjectPetName} {joinScript} {(string.IsNullOrWhiteSpace(tranResult.ConditionString) ? string.Empty : $"WHERE {tranResult.ConditionString}")} ORDER BY {(string.IsNullOrWhiteSpace(tranResult.OrderString) ? $"{defaultFieldName} DESC" : tranResult.OrderString)}";
                     break;
             }
 
             #endregion
 
-            #region parameters
+            #region parameter
 
             var parameters = ConvertCmdParameters(ParseParameters(tranResult.Parameters));
 
             #endregion
 
+            //Trace log
+            OracleFactory.LogScript(cmdText, tranResult.Parameters);
+
             using (var conn = OracleFactory.GetConnection(server))
             {
-                var tran = GetQueryTransaction(conn, cmd.Query);
-                var cmdDefinition = new CommandDefinition(cmdText.ToString(), parameters, transaction: tran, commandType: GetCommandType(cmd as RdbCommand), cancellationToken: cmd.Query?.GetCancellationToken() ?? default);
+                var tran = GetQueryTransaction(conn, command.Query);
+                var cmdDefinition = new CommandDefinition(cmdText, parameters, transaction: tran, commandType: GetCommandType(command as RdbCommand), cancellationToken: command.Query?.GetCancellationToken() ?? default);
                 return await conn.QueryAsync<T>(cmdDefinition).ConfigureAwait(false);
             }
         }
 
         /// <summary>
-        /// query data with paging
+        /// Query data paging
         /// </summary>
         /// <typeparam name="T">data type</typeparam>
         /// <param name="server">databse server</param>
-        /// <param name="cmd">command</param>
+        /// <param name="command">command</param>
         /// <returns></returns>
-        public IEnumerable<T> QueryPaging<T>(ServerInfo server, ICommand cmd)
+        public IEnumerable<T> QueryPaging<T>(DatabaseServer server, ICommand command)
         {
-            return QueryPagingAsync<T>(server, cmd).Result;
+            return QueryPagingAsync<T>(server, command).Result;
         }
 
         /// <summary>
-        /// query data with paging
+        /// Query data paging
         /// </summary>
         /// <typeparam name="T">data type</typeparam>
         /// <param name="server">databse server</param>
-        /// <param name="cmd">command</param>
+        /// <param name="command">command</param>
         /// <returns></returns>
-        public async Task<IEnumerable<T>> QueryPagingAsync<T>(ServerInfo server, ICommand cmd)
+        public async Task<IEnumerable<T>> QueryPagingAsync<T>(DatabaseServer server, ICommand command)
         {
             int beginIndex = 0;
             int pageSize = 1;
-            if (cmd.Query != null && cmd.Query.PagingInfo != null)
+            if (command?.Query?.PagingInfo != null)
             {
-                beginIndex = cmd.Query.PagingInfo.Page;
-                pageSize = cmd.Query.PagingInfo.PageSize;
+                beginIndex = command.Query.PagingInfo.Page;
+                pageSize = command.Query.PagingInfo.PageSize;
                 beginIndex = (beginIndex - 1) * pageSize;
             }
-            return await QueryOffsetAsync<T>(server, cmd, beginIndex, pageSize).ConfigureAwait(false);
+            return await QueryOffsetAsync<T>(server, command, beginIndex, pageSize).ConfigureAwait(false);
         }
 
         /// <summary>
-        /// query data list offset the specified numbers
+        /// Query datas offset the specified numbers
         /// </summary>
         /// <typeparam name="T">data type</typeparam>
         /// <param name="server">database server</param>
-        /// <param name="cmd">command</param>
+        /// <param name="command">command</param>
         /// <param name="offsetNum">offset num</param>
         /// <param name="size">query size</param>
         /// <returns></returns>
-        public IEnumerable<T> QueryOffset<T>(ServerInfo server, ICommand cmd, int offsetNum = 0, int size = int.MaxValue)
+        public IEnumerable<T> QueryOffset<T>(DatabaseServer server, ICommand command, int offsetNum = 0, int size = int.MaxValue)
         {
-            return QueryOffsetAsync<T>(server, cmd, offsetNum, size).Result;
+            return QueryOffsetAsync<T>(server, command, offsetNum, size).Result;
         }
 
         /// <summary>
-        /// query data list offset the specified numbers
+        /// Query datas offset the specified numbers
         /// </summary>
         /// <typeparam name="T">data type</typeparam>
         /// <param name="server">database server</param>
-        /// <param name="cmd">command</param>
+        /// <param name="command">command</param>
         /// <param name="offsetNum">offset num</param>
         /// <param name="size">query size</param>
         /// <returns></returns>
-        public async Task<IEnumerable<T>> QueryOffsetAsync<T>(ServerInfo server, ICommand cmd, int offsetNum = 0, int size = int.MaxValue)
+        public async Task<IEnumerable<T>> QueryOffsetAsync<T>(DatabaseServer server, ICommand command, int offsetNum = 0, int size = int.MaxValue)
         {
-            if (cmd.Query == null)
+            if (command.Query == null)
             {
                 throw new EZNEWException("ICommand.Query is null");
             }
 
-            #region query object translate
+            #region query translate
 
             IQueryTranslator translator = OracleFactory.GetQueryTranslator(server);
-            var tranResult = translator.Translate(cmd.Query);
+            var tranResult = translator.Translate(command.Query);
+            string joinScript = tranResult.AllowJoin ? tranResult.JoinScript : string.Empty;
 
             #endregion
 
             #region execute
 
-            string joinScript = tranResult.AllowJoin ? tranResult.JoinScript : string.Empty;
-            StringBuilder cmdText = new StringBuilder();
-            switch (cmd.Query.QueryType)
+            string cmdText;
+            switch (command.Query.QueryType)
             {
                 case QueryCommandType.Text:
-                    cmdText.Append(tranResult.ConditionString);
+                    cmdText = tranResult.ConditionString;
                     break;
                 case QueryCommandType.QueryObject:
                 default:
                     string conditionString = string.Empty;
-                    string orderString = string.Empty;
-                    string objectName = DataManager.GetEntityObjectName(ServerType.Oracle, cmd.EntityType, cmd.ObjectName);
-                    string defaultFieldName = string.Empty;
-                    List<string> formatQueryFields = FormatQueryFields(translator.ObjectPetName, cmd.Query, cmd.EntityType, out defaultFieldName);
+                    string objectName = DataManager.GetEntityObjectName(DatabaseServerType.Oracle, command.EntityType, command.ObjectName);
+                    List<string> formatQueryFields = FormatQueryFields(translator.ObjectPetName, command.Query, command.EntityType, out var defaultFieldName);
                     var beginRow = offsetNum + 1;
-                    if (!tranResult.ConditionString.IsNullOrEmpty())
+                    if (!string.IsNullOrWhiteSpace(tranResult.ConditionString))
                     {
                         conditionString = $" WHERE {tranResult.ConditionString}";
                     }
-                    if (tranResult.OrderString.IsNullOrEmpty())
+                    string orderString;
+                    if (string.IsNullOrWhiteSpace(tranResult.OrderString))
                     {
                         orderString = $" ORDER BY {translator.ObjectPetName}.{defaultFieldName} DESC";
                     }
@@ -593,54 +590,57 @@ namespace EZNEW.Data.Oracle
                     {
                         orderString = $" ORDER BY {tranResult.OrderString}";
                     }
-                    cmdText.Append($"{tranResult.PreScript}SELECT * FROM (SELECT COUNT({translator.ObjectPetName}.{defaultFieldName}) OVER() AS QueryDataTotalCount,ROW_NUMBER() OVER({orderString}) AS EZNEW_ROWNUMBER,{string.Join(",", formatQueryFields)} FROM {objectName} {translator.ObjectPetName} {joinScript} {conditionString}) WHERE EZNEW_ROWNUMBER BETWEEN {beginRow} AND {beginRow + size}");
+                    cmdText = $"{tranResult.PreScript}SELECT * FROM (SELECT COUNT({translator.ObjectPetName}.{defaultFieldName}) OVER() AS QueryDataTotalCount,ROW_NUMBER() OVER({orderString}) AS EZNEW_ROWNUMBER,{string.Join(",", formatQueryFields)} FROM {objectName} {translator.ObjectPetName} {joinScript} {conditionString}) WHERE EZNEW_ROWNUMBER BETWEEN {beginRow} AND {beginRow + size}";
                     break;
             }
 
             #endregion
 
-            #region parameters
+            #region parameter
 
             var parameters = ConvertCmdParameters(ParseParameters(tranResult.Parameters));
 
             #endregion
 
+            //Trace log
+            OracleFactory.LogScript(cmdText, tranResult.Parameters);
+
             using (var conn = OracleFactory.GetConnection(server))
             {
-                var tran = GetQueryTransaction(conn, cmd.Query);
-                var cmdDefinition = new CommandDefinition(cmdText.ToString(), parameters, transaction: tran, commandType: GetCommandType(cmd as RdbCommand), cancellationToken: cmd.Query?.GetCancellationToken() ?? default);
+                var tran = GetQueryTransaction(conn, command.Query);
+                var cmdDefinition = new CommandDefinition(cmdText, parameters, transaction: tran, commandType: GetCommandType(command as RdbCommand), cancellationToken: command.Query?.GetCancellationToken() ?? default);
                 return await conn.QueryAsync<T>(cmdDefinition).ConfigureAwait(false);
             }
         }
 
         /// <summary>
-        /// determine whether data has existed
+        /// Determine whether data has existed
         /// </summary>
         /// <param name="server">server</param>
-        /// <param name="cmd">command</param>
+        /// <param name="command">command</param>
         /// <returns>data has existed</returns>
-        public bool Query(ServerInfo server, ICommand cmd)
+        public bool Query(DatabaseServer server, ICommand command)
         {
-            return QueryAsync(server, cmd).Result;
+            return QueryAsync(server, command).Result;
         }
 
         /// <summary>
-        /// determine whether data has existed
+        /// Determine whether data has existed
         /// </summary>
         /// <param name="server">server</param>
-        /// <param name="cmd">command</param>
+        /// <param name="command">command</param>
         /// <returns>data has existed</returns>
-        public async Task<bool> QueryAsync(ServerInfo server, ICommand cmd)
+        public async Task<bool> QueryAsync(DatabaseServer server, ICommand command)
         {
             var translator = OracleFactory.GetQueryTranslator(server);
 
             #region query translate
 
-            var tranResult = translator.Translate(cmd.Query);
+            var tranResult = translator.Translate(command.Query);
             string conditionString = string.Empty;
-            if (!tranResult.ConditionString.IsNullOrEmpty())
+            if (!string.IsNullOrWhiteSpace(tranResult.ConditionString))
             {
-                conditionString += "WHERE " + tranResult.ConditionString;
+                conditionString = $"WHERE {tranResult.ConditionString}";
             }
             string preScript = tranResult.PreScript;
             string joinScript = tranResult.AllowJoin ? tranResult.JoinScript : string.Empty;
@@ -649,132 +649,140 @@ namespace EZNEW.Data.Oracle
 
             #region script
 
-            var field = DataManager.GetDefaultField(ServerType.Oracle, cmd.EntityType);
-            string objectName = DataManager.GetEntityObjectName(ServerType.Oracle, cmd.EntityType, cmd.ObjectName);
+            var field = DataManager.GetDefaultField(DatabaseServerType.Oracle, command.EntityType);
+            string objectName = DataManager.GetEntityObjectName(DatabaseServerType.Oracle, command.EntityType, command.ObjectName);
             string cmdText = $"{preScript}SELECT CASE WHEN EXISTS(SELECT {translator.ObjectPetName}.{field.FieldName} FROM {objectName} {translator.ObjectPetName} {joinScript} {conditionString}) THEN 1 ELSE 0 END FROM DUAL";
 
             #endregion
 
-            #region parameters
+            #region parameter
 
             var parameters = ConvertCmdParameters(ParseParameters(tranResult.Parameters));
 
             #endregion
 
+            //Trace log
+            OracleFactory.LogScript(cmdText, tranResult.Parameters);
+
             using (var conn = OracleFactory.GetConnection(server))
             {
-                var tran = GetQueryTransaction(conn, cmd.Query);
-                var cmdDefinition = new CommandDefinition(cmdText, parameters, transaction: tran, cancellationToken: cmd.Query?.GetCancellationToken() ?? default);
+                var tran = GetQueryTransaction(conn, command.Query);
+                var cmdDefinition = new CommandDefinition(cmdText, parameters, transaction: tran, cancellationToken: command.Query?.GetCancellationToken() ?? default);
                 int value = await conn.ExecuteScalarAsync<int>(cmdDefinition).ConfigureAwait(false);
                 return value > 0;
             }
         }
 
         /// <summary>
-        /// query single value
+        /// Query single value
         /// </summary>
         /// <typeparam name="T">data type</typeparam>
         /// <param name="server">database server</param>
-        /// <param name="cmd">command</param>
+        /// <param name="command">command</param>
         /// <returns>query data</returns>
-        public T AggregateValue<T>(ServerInfo server, ICommand cmd)
+        public T AggregateValue<T>(DatabaseServer server, ICommand command)
         {
-            return AggregateValueAsync<T>(server, cmd).Result;
+            return AggregateValueAsync<T>(server, command).Result;
         }
 
         /// <summary>
-        /// query single value
+        /// Query single value
         /// </summary>
         /// <typeparam name="T">data type</typeparam>
         /// <param name="server">database server</param>
-        /// <param name="cmd">command</param>
+        /// <param name="command">command</param>
         /// <returns>query data</returns>
-        public async Task<T> AggregateValueAsync<T>(ServerInfo server, ICommand cmd)
+        public async Task<T> AggregateValueAsync<T>(DatabaseServer server, ICommand command)
         {
-            if (cmd.Query == null)
+            if (command.Query == null)
             {
                 throw new EZNEWException("ICommand.Query is null");
             }
 
-            #region query object translate
+            #region query translate
 
             IQueryTranslator translator = OracleFactory.GetQueryTranslator(server);
-            var tranResult = translator.Translate(cmd.Query);
+            var tranResult = translator.Translate(command.Query);
+            string joinScript = tranResult.AllowJoin ? tranResult.JoinScript : string.Empty;
 
             #endregion
 
             #region script
 
-            StringBuilder cmdText = new StringBuilder();
-            string joinScript = tranResult.AllowJoin ? tranResult.JoinScript : string.Empty;
-            switch (cmd.Query.QueryType)
+            string cmdText;
+            switch (command.Query.QueryType)
             {
                 case QueryCommandType.Text:
-                    cmdText.Append(tranResult.ConditionString);
+                    cmdText = tranResult.ConditionString;
                     break;
                 case QueryCommandType.QueryObject:
                 default:
-                    string funcName = GetAggregateFunctionName(cmd.Operate);
-                    if (funcName.IsNullOrEmpty())
+                    string funcName = GetAggregateFunctionName(command.OperateType);
+                    if (string.IsNullOrWhiteSpace(funcName))
                     {
-                        return default(T);
+                        return default;
                     }
 
                     #region field
 
-                    EntityField field = null;
-                    if (AggregateOperateMustNeedField(cmd.Operate))
+                    EntityField field;
+                    if (AggregateOperateMustNeedField(command.OperateType))
                     {
-                        if (cmd.Query.QueryFields.IsNullOrEmpty())
+                        if (command.Query.QueryFields.IsNullOrEmpty())
                         {
-                            throw new EZNEWException($"you must specify the field to perform for the {funcName} operation");
+                            throw new EZNEWException($"You must specify the field to perform for the {funcName} operation");
                         }
                         else
                         {
-                            field = DataManager.GetField(ServerType.Oracle, cmd.EntityType, cmd.Query.QueryFields[0]);
+                            field = DataManager.GetField(DatabaseServerType.Oracle, command.EntityType, command.Query.QueryFields.First());
                         }
                     }
                     else
                     {
-                        field = DataManager.GetDefaultField(ServerType.Oracle, cmd.EntityType);
+                        field = DataManager.GetDefaultField(DatabaseServerType.Oracle, command.EntityType);
                     }
 
                     #endregion
 
-                    string objectName = DataManager.GetEntityObjectName(ServerType.Oracle, cmd.EntityType, cmd.ObjectName);
-                    cmdText.Append($"{tranResult.PreScript}SELECT {funcName}({FormatField(translator.ObjectPetName, field)}) FROM {objectName} {translator.ObjectPetName} {joinScript} {(tranResult.ConditionString.IsNullOrEmpty() ? string.Empty : $"WHERE {tranResult.ConditionString}")} {(tranResult.OrderString.IsNullOrEmpty() ? string.Empty : $"ORDER BY {tranResult.OrderString}")}");
+                    string objectName = DataManager.GetEntityObjectName(DatabaseServerType.Oracle, command.EntityType, command.ObjectName);
+                    cmdText = $"{tranResult.PreScript}SELECT {funcName}({FormatField(translator.ObjectPetName, field)}) FROM {objectName} {translator.ObjectPetName} {joinScript} {(string.IsNullOrWhiteSpace(tranResult.ConditionString) ? string.Empty : $"WHERE {tranResult.ConditionString}")} {(string.IsNullOrWhiteSpace(tranResult.OrderString) ? string.Empty : $"ORDER BY {tranResult.OrderString}")}";
                     break;
             }
 
             #endregion
 
-            #region parameters
+            #region parameter
 
             var parameters = ConvertCmdParameters(ParseParameters(tranResult.Parameters));
 
             #endregion
 
+            //Trace log
+            OracleFactory.LogScript(cmdText, tranResult.Parameters);
+
             using (var conn = OracleFactory.GetConnection(server))
             {
-                var tran = GetQueryTransaction(conn, cmd.Query);
-                var cmdDefinition = new CommandDefinition(cmdText.ToString(), parameters, transaction: tran, commandType: GetCommandType(cmd as RdbCommand), cancellationToken: cmd.Query?.GetCancellationToken() ?? default);
+                var tran = GetQueryTransaction(conn, command.Query);
+                var cmdDefinition = new CommandDefinition(cmdText, parameters, transaction: tran, commandType: GetCommandType(command as RdbCommand), cancellationToken: command.Query?.GetCancellationToken() ?? default);
                 return await conn.ExecuteScalarAsync<T>(cmdDefinition).ConfigureAwait(false);
             }
         }
 
         /// <summary>
-        /// query data
+        /// Query data set
         /// </summary>
         /// <param name="server">database server</param>
-        /// <param name="cmd">query cmd</param>
-        /// <returns>data</returns>
-        public async Task<DataSet> QueryMultipleAsync(ServerInfo server, ICommand cmd)
+        /// <param name="command">query command</param>
+        /// <returns>return data set</returns>
+        public async Task<DataSet> QueryMultipleAsync(DatabaseServer server, ICommand command)
         {
+            //Trace log
+            OracleFactory.LogScript(command.CommandText, command.Parameters);
             using (var conn = OracleFactory.GetConnection(server))
             {
-                var tran = GetQueryTransaction(conn, cmd.Query);
-                DynamicParameters parameters = ConvertCmdParameters(ParseParameters(cmd.Parameters));
-                var cmdDefinition = new CommandDefinition(cmd.CommandText, parameters, transaction: tran, commandType: GetCommandType(cmd as RdbCommand), cancellationToken: cmd.Query?.GetCancellationToken() ?? default);
+                var tran = GetQueryTransaction(conn, command.Query);
+                DynamicParameters parameters = ConvertCmdParameters(ParseParameters(command.Parameters));
+                var cmdDefinition = new CommandDefinition(command.CommandText, parameters, transaction: tran, commandType: GetCommandType(command as RdbCommand), cancellationToken: command.Query?.GetCancellationToken() ?? default);
                 using (var reader = await conn.ExecuteReaderAsync(cmdDefinition).ConfigureAwait(false))
                 {
                     DataSet dataSet = new DataSet();
@@ -791,44 +799,44 @@ namespace EZNEW.Data.Oracle
 
         #endregion
 
-        #region util
+        #region Util
 
         /// <summary>
-        /// get command type
+        /// Get command type
         /// </summary>
-        /// <param name="cmd">command</param>
+        /// <param name="command">command</param>
         /// <returns></returns>
-        CommandType GetCommandType(RdbCommand cmd)
+        CommandType GetCommandType(RdbCommand command)
         {
-            return cmd.CommandType == CommandTextType.Procedure ? CommandType.StoredProcedure : CommandType.Text;
+            return command.CommandType == CommandTextType.Procedure ? CommandType.StoredProcedure : CommandType.Text;
         }
 
         /// <summary>
-        /// get calculate sign
+        /// Get calculate sign
         /// </summary>
         /// <param name="calculate">calculate operator</param>
         /// <returns></returns>
         string GetCalculateChar(CalculateOperator calculate)
         {
-            CalculateOperatorDict.TryGetValue(calculate, out var opearterChar);
+            CalculateOperatorDictionary.TryGetValue(calculate, out var opearterChar);
             return opearterChar;
         }
 
         /// <summary>
-        /// get aggregate function name
+        /// Get aggregate function name
         /// </summary>
         /// <param name="funcType">function type</param>
         /// <returns></returns>
         string GetAggregateFunctionName(OperateType funcType)
         {
-            AggregateFunctionDict.TryGetValue(funcType, out var funcName);
+            AggregateFunctionDictionary.TryGetValue(funcType, out var funcName);
             return funcName;
         }
 
         /// <summary>
-        /// Aggregate Operate Must Need Field
+        /// Aggregate operate must need field
         /// </summary>
-        /// <param name="operateType"></param>
+        /// <param name="operateType">operate type</param>
         /// <returns></returns>
         bool AggregateOperateMustNeedField(OperateType operateType)
         {
@@ -836,12 +844,13 @@ namespace EZNEW.Data.Oracle
         }
 
         /// <summary>
-        /// format insert fields
+        /// Format insert fields
         /// </summary>
         /// <param name="fields">fields</param>
-        /// <param name="originParameters">origin parameters</param>
+        /// <param name="parameters">parameters</param>
+        /// <param name="parameterSequence">parameter sequence</param>
         /// <returns>first:fields,second:parameter fields,third:parameters</returns>
-        Tuple<List<string>, List<string>, CmdParameters> FormatInsertFields(List<EntityField> fields, object parameters, int parameterSequence)
+        Tuple<List<string>, List<string>, CommandParameters> FormatInsertFields(List<EntityField> fields, object parameters, int parameterSequence)
         {
             if (fields.IsNullOrEmpty())
             {
@@ -849,12 +858,12 @@ namespace EZNEW.Data.Oracle
             }
             List<string> formatFields = new List<string>(fields.Count);
             List<string> parameterFields = new List<string>(fields.Count);
-            CmdParameters cmdParameters = ParseParameters(parameters);
+            CommandParameters cmdParameters = ParseParameters(parameters);
             foreach (var field in fields)
             {
                 //fields
                 var formatValue = field.GetEditFormat(fieldFormatKey);
-                if (formatValue.IsNullOrEmpty())
+                if (string.IsNullOrWhiteSpace(formatValue))
                 {
                     formatValue = $"{field.FieldName}";
                     field.SetEditFormat(fieldFormatKey, formatValue);
@@ -869,54 +878,54 @@ namespace EZNEW.Data.Oracle
                 //parameter value
                 cmdParameters?.Rename(field.PropertyName, parameterName);
             }
-            return new Tuple<List<string>, List<string>, CmdParameters>(formatFields, parameterFields, cmdParameters);
+            return new Tuple<List<string>, List<string>, CommandParameters>(formatFields, parameterFields, cmdParameters);
         }
 
         /// <summary>
-        /// format fields
+        /// Format fields
         /// </summary>
         /// <param name="fields">fields</param>
         /// <returns></returns>
-        List<string> FormatQueryFields(string dbObjectName, IQuery query, Type entityType, out string defaultFieldName)
+        List<string> FormatQueryFields(string dataBaseObjectName, IQuery query, Type entityType, out string defaultFieldName)
         {
             defaultFieldName = string.Empty;
             if (query == null || entityType == null)
             {
                 return new List<string>(0);
             }
-            var queryFields = DataManager.GetQueryFields(ServerType.Oracle, entityType, query);
+            var queryFields = DataManager.GetQueryFields(DatabaseServerType.Oracle, entityType, query);
             if (queryFields.IsNullOrEmpty())
             {
                 return new List<string>(0);
             }
             defaultFieldName = queryFields[0].FieldName;
             List<string> formatFields = new List<string>();
-            string key = ((int)ServerType.Oracle).ToString();
+            string key = ((int)DatabaseServerType.Oracle).ToString();
             foreach (var field in queryFields)
             {
-                var formatValue = FormatField(dbObjectName, field);
+                var formatValue = FormatField(dataBaseObjectName, field);
                 formatFields.Add(formatValue);
             }
             return formatFields;
         }
 
         /// <summary>
-        /// format field
+        /// Format field
         /// </summary>
-        /// <param name="dbObjectName">db object name</param>
+        /// <param name="dataBaseObjectName">database object name</param>
         /// <param name="field">field</param>
         /// <returns></returns>
-        string FormatField(string dbObjectName, EntityField field)
+        string FormatField(string dataBaseObjectName, EntityField field)
         {
             if (field == null)
             {
                 return string.Empty;
             }
             var formatValue = field.GetQueryFormat(fieldFormatKey);
-            if (formatValue.IsNullOrEmpty())
+            if (string.IsNullOrWhiteSpace(formatValue))
             {
-                string fieldName = $"{dbObjectName}.{field.FieldName}";
-                if (!field.QueryFormat.IsNullOrEmpty())
+                string fieldName = $"{dataBaseObjectName}.{field.FieldName}";
+                if (!string.IsNullOrWhiteSpace(field.QueryFormat))
                 {
                     formatValue = string.Format(field.QueryFormat + " AS \"{1}\"", fieldName, field.PropertyName);
                 }
@@ -934,18 +943,18 @@ namespace EZNEW.Data.Oracle
         }
 
         /// <summary>
-        /// get fields
+        /// Get fields
         /// </summary>
         /// <param name="entityType">entity type</param>
         /// <param name="propertyNames">property names</param>
         /// <returns></returns>
         List<EntityField> GetFields(Type entityType, IEnumerable<string> propertyNames)
         {
-            return DataManager.GetFields(ServerType.Oracle, entityType, propertyNames);
+            return DataManager.GetFields(DatabaseServerType.Oracle, entityType, propertyNames);
         }
 
         /// <summary>
-        /// format parameter name
+        /// Format parameter name
         /// </summary>
         /// <param name="parameterName">parameter name</param>
         /// <param name="parameterSequence">parameter sequence</param>
@@ -956,22 +965,22 @@ namespace EZNEW.Data.Oracle
         }
 
         /// <summary>
-        /// parse parameter
+        /// Parse parameter
         /// </summary>
         /// <param name="originParameters">origin parameter</param>
         /// <returns></returns>
-        CmdParameters ParseParameters(object originParameters)
+        CommandParameters ParseParameters(object originParameters)
         {
             if (originParameters == null)
             {
                 return null;
             }
-            CmdParameters parameters = originParameters as CmdParameters;
+            CommandParameters parameters = originParameters as CommandParameters;
             if (parameters != null)
             {
                 return parameters;
             }
-            parameters = new CmdParameters();
+            parameters = new CommandParameters();
             if (originParameters is IEnumerable<KeyValuePair<string, string>>)
             {
                 var stringParametersDict = originParameters as IEnumerable<KeyValuePair<string, string>>;
@@ -1001,11 +1010,11 @@ namespace EZNEW.Data.Oracle
         }
 
         /// <summary>
-        /// convert cmd parameters
+        /// Convert command parameters
         /// </summary>
-        /// <param name="cmdParameters">cmd parameters</param>
+        /// <param name="cmdParameters">command parameters</param>
         /// <returns></returns>
-        DynamicParameters ConvertCmdParameters(CmdParameters cmdParameters)
+        DynamicParameters ConvertCmdParameters(CommandParameters cmdParameters)
         {
             if (cmdParameters?.Parameters.IsNullOrEmpty() ?? true)
             {
@@ -1030,7 +1039,7 @@ namespace EZNEW.Data.Oracle
         }
 
         /// <summary>
-        /// get transaction isolation level
+        /// Get transaction isolation level
         /// </summary>
         /// <param name="dataIsolationLevel">data isolation level</param>
         /// <returns></returns>
@@ -1038,13 +1047,13 @@ namespace EZNEW.Data.Oracle
         {
             if (!dataIsolationLevel.HasValue)
             {
-                dataIsolationLevel = DataManager.GetServerDataIsolationLevel(ServerType.Oracle);
+                dataIsolationLevel = DataManager.GetDataIsolationLevel(DatabaseServerType.Oracle);
             }
             return DataManager.GetSystemIsolationLevel(dataIsolationLevel);
         }
 
         /// <summary>
-        /// get query transaction
+        /// Get query transaction
         /// </summary>
         /// <param name="connection">connection</param>
         /// <param name="query">query</param>
@@ -1054,7 +1063,7 @@ namespace EZNEW.Data.Oracle
             DataIsolationLevel? dataIsolationLevel = query?.IsolationLevel;
             if (!dataIsolationLevel.HasValue)
             {
-                dataIsolationLevel = DataManager.GetServerDataIsolationLevel(ServerType.Oracle);
+                dataIsolationLevel = DataManager.GetDataIsolationLevel(DatabaseServerType.Oracle);
             }
             var systemIsolationLevel = GetTransactionIsolationLevel(dataIsolationLevel);
             if (systemIsolationLevel.HasValue)
@@ -1069,7 +1078,7 @@ namespace EZNEW.Data.Oracle
         }
 
         /// <summary>
-        /// get execute transaction
+        /// Get execute transaction
         /// </summary>
         /// <param name="connection">connection</param>
         /// <param name="executeOption">execute option</param>
@@ -1079,7 +1088,7 @@ namespace EZNEW.Data.Oracle
             DataIsolationLevel? dataIsolationLevel = executeOption?.IsolationLevel;
             if (!dataIsolationLevel.HasValue)
             {
-                dataIsolationLevel = DataManager.GetServerDataIsolationLevel(ServerType.Oracle);
+                dataIsolationLevel = DataManager.GetDataIsolationLevel(DatabaseServerType.Oracle);
             }
             var systemIsolationLevel = DataManager.GetSystemIsolationLevel(dataIsolationLevel);
             if (connection.State != ConnectionState.Open)
