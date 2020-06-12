@@ -10,8 +10,7 @@ If you have any questions or Suggestions, you can report to us via email,to the 
 
 These are some other repos for related projects:
 
-  * [EZNEW.Develop](https://github.com/eznew-net/EZNEW.Develop)-a .NET domain-driven development framework
-  * [EZNEW.Data](https://github.com/eznew-net/EZNEW.Data)-provide data access support for EZNEW.Develop
-  * [EZNEW.Data.SqlServer](https://github.com/eznew-net/EZNEW.Data.SqlServer)-provides support for SQLServer database access
-  * [EZNEW.Framework](https://github.com/eznew-net/EZNEW.Framework)-common development tool libraries
-  * [Demo](https://github.com/eznew-net/Demo)-an example application for the EZNEW.NET development framework
+  * [EZNEW.Data.SqlServer](https://github.com/eznew-net/EZNEW.Data.SqlServer)-Provides access to SQL Server databases based on the EZNEW development framework
+  * [EZNEW.Data.MySQL](https://github.com/eznew-net/EZNEW.Data.MySQL)-Provides access to MySQL databases based on the EZNEW development framework
+  * [EZNEW.Web](https://github.com/eznew-net/EZNEW.Web)-ASP.NET development tool library
+  * [Demo](https://github.com/eznew-net/Demo.Core3.0)-An example application for the EZNEW development framework
