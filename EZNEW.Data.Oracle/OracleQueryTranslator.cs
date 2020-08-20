@@ -141,6 +141,34 @@ namespace EZNEW.Data.Oracle
 
                 #endregion
 
+                #region combine
+
+                StringBuilder combineBuilder = new StringBuilder();
+                if (!query.CombineItems.IsNullOrEmpty())
+                {
+                    foreach (var combine in query.CombineItems)
+                    {
+                        if (combine?.CombineQuery == null)
+                        {
+                            continue;
+                        }
+                        var combineObjectPetName = GetNewSubObjectPetName();
+                        string combineObjectName = DataManager.GetQueryRelationObjectName(DatabaseServerType.Oracle, combine.CombineQuery);
+                        var combineQueryResult = ExecuteTranslate(combine.CombineQuery, parameters, combineObjectPetName, true, true);
+                        string combineConditionString = string.IsNullOrWhiteSpace(combineQueryResult.ConditionString) ? string.Empty : $"WHERE {combineQueryResult.ConditionString}";
+                        combineBuilder.Append($" {GetCombineOperator(combine.CombineType)} SELECT {string.Join(",", OracleFactory.FormatQueryFields(combineObjectPetName, query, query.GetEntityType(), true, false))} FROM {combineObjectName} {combineObjectPetName} {(combineQueryResult.AllowJoin ? combineQueryResult.JoinScript : string.Empty)} {combineConditionString}");
+                        if (!combineQueryResult.WithScripts.IsNullOrEmpty())
+                        {
+                            withScripts.AddRange(combineQueryResult.WithScripts);
+                            recurveTableName = combineQueryResult.RecurveObjectName;
+                            recurveTablePetName = combineQueryResult.RecurvePetName;
+                        }
+                    }
+
+                }
+
+                #endregion
+
                 #region join
 
                 bool allowJoin = true;
@@ -149,24 +177,42 @@ namespace EZNEW.Data.Oracle
                 {
                     foreach (var joinItem in query.JoinItems)
                     {
-                        if (joinItem == null || joinItem.JoinQuery == null)
-                        {
-                            continue;
-                        }
-                        if (joinItem.JoinQuery.GetEntityType() == null)
+                        var joinQueryEntityType = joinItem?.JoinQuery?.GetEntityType();
+                        if (joinQueryEntityType == null)
                         {
                             throw new EZNEWException("IQuery object must set entity type if use in join operation");
                         }
                         string joinObjName = GetNewSubObjectPetName();
                         var joinQueryResult = ExecuteTranslate(joinItem.JoinQuery, parameters, joinObjName, true);
-                        if (!string.IsNullOrWhiteSpace(joinQueryResult.ConditionString))
+                        string joinQueryObjectName = DataManager.GetQueryRelationObjectName(DatabaseServerType.Oracle, joinItem.JoinQuery);
+                        if (string.IsNullOrWhiteSpace(joinQueryResult.CombineScript))
                         {
-                            conditionBuilder.Append($"{(conditionBuilder.Length == 0 ? string.Empty : " AND")}{joinQueryResult.ConditionString}");
+                            var joinConnection = GetJoinCondition(query, joinItem, conditionObjectName, joinObjName);
+                            if (!string.IsNullOrWhiteSpace(joinQueryResult.ConditionString))
+                            {
+                                if (joinQueryResult.AllowJoin && PositionJoinConditionToConnection(joinItem.JoinType))
+                                {
+                                    joinConnection += $"{(string.IsNullOrWhiteSpace(joinConnection) ? " ON" : " AND ")}{joinQueryResult.ConditionString}";
+                                }
+                                else
+                                {
+                                    conditionBuilder.Append($"{(conditionBuilder.Length == 0 ? string.Empty : " AND ")}{joinQueryResult.ConditionString}");
+                                }
+                            }
+
+                            joinBuilder.Append($" {GetJoinOperator(joinItem.JoinType)} {joinQueryObjectName} {joinObjName}{joinConnection}");
+                            if (joinQueryResult.AllowJoin && !string.IsNullOrWhiteSpace(joinQueryResult.JoinScript))
+                            {
+                                joinBuilder.Append($" {joinQueryResult.JoinScript}");
+                            }
                         }
-                        joinBuilder.Append($"{GetJoinOperator(joinItem.JoinType)} {DataManager.GetQueryRelationObjectName(DatabaseServerType.Oracle, joinItem.JoinQuery)} {joinObjName}{GetJoinCondition(query, joinItem, conditionObjectName, joinObjName)}");
-                        if (!string.IsNullOrWhiteSpace(joinQueryResult.JoinScript))
+                        else
                         {
-                            joinBuilder.Append($" {joinQueryResult.JoinScript}");
+                            string combineJoinObjName = GetNewSubObjectPetName();
+                            string joinConnection = GetJoinCondition(query, joinItem, objectName, combineJoinObjName);
+                            string combineQueryFields = string.Join(",", OracleFactory.FormatQueryFields(joinObjName, joinItem.JoinQuery, joinQueryEntityType, true, false));
+                            string combineCondition = string.IsNullOrWhiteSpace(joinQueryResult.ConditionString) ? string.Empty : "WHERE " + joinQueryResult.ConditionString;
+                            joinBuilder.Append($" {GetJoinOperator(joinItem.JoinType)} (SELECT {combineQueryFields} FROM {joinQueryObjectName} {joinObjName} {(joinQueryResult.AllowJoin ? joinQueryResult.JoinScript : string.Empty)} {combineCondition} {joinQueryResult.CombineScript}) {combineJoinObjName}{joinConnection}");
                         }
                         if (!joinQueryResult.WithScripts.IsNullOrEmpty())
                         {
@@ -193,19 +239,20 @@ namespace EZNEW.Data.Oracle
                     recurveTablePetName = conditionObjectName;
                     string withScript = $"SELECT {conditionObjectName}.{recurveField.FieldName} FROM {queryObjectName} {conditionObjectName} {joinScript} " +
                         $"START WITH {(string.IsNullOrWhiteSpace(nowConditionString) ? "1 = 1 " : nowConditionString)} " +
-                        $"CONNECT BY PRIOR {(query.RecurveCriteria.Direction == RecurveDirection.Up ? $"{recurveRelationField.FieldName} = {recurveField.FieldName}" : $"{recurveField.FieldName} = {recurveRelationField.FieldName}")}";
+                        $"CONNECT BY PRIOR {(query.RecurveCriteria.Direction == RecurveDirection.Up ? $"{conditionObjectName}.{recurveRelationField.FieldName} = {conditionObjectName}.{recurveField.FieldName}" : $"{conditionObjectName}.{recurveField.FieldName} = {conditionObjectName}.{recurveRelationField.FieldName}")}";
                     conditionString = $"{objectName}.{recurveField.FieldName} IN ({withScript})";
                     withScripts.Add(withScript);
                 }
+
+                #endregion
+
                 var result = TranslateResult.CreateNewResult(conditionString, orderBuilder.ToString().Trim(','), parameters);
                 result.JoinScript = joinScript;
                 result.AllowJoin = allowJoin;
                 result.WithScripts = withScripts;
                 result.RecurveObjectName = recurveTableName;
                 result.RecurvePetName = recurveTablePetName;
-
-                #endregion
-
+                result.CombineScript = combineBuilder.ToString();
                 return result;
             }
             else
@@ -235,7 +282,7 @@ namespace EZNEW.Data.Oracle
             if (groupQuery != null && !groupQuery.Criterias.IsNullOrEmpty())
             {
                 groupQuery.SetEntityType(query.GetEntityType());
-                var criteriasCount = groupQuery.Criterias.Count();
+                var criteriasCount = groupQuery.Criterias.GetCount();
                 if (criteriasCount == 1)
                 {
                     var firstCriterias = groupQuery.Criterias.First();
@@ -285,9 +332,10 @@ namespace EZNEW.Data.Oracle
             }
             string sqlOperator = GetOperator(criteria.Operator);
             bool needParameter = OperatorNeedParameter(criteria.Operator);
+            string criteriaFieldName = ConvertCriteriaName(query, objectName, criteria);
             if (!needParameter)
             {
-                return TranslateResult.CreateNewResult($"{ConvertCriteriaName(query, objectName, criteria)} {sqlOperator}");
+                return TranslateResult.CreateNewResult($"{criteriaFieldName} {sqlOperator}");
             }
             IQuery valueQuery = criteria.Value as IQuery;
             string parameterName = criteria.Name + ParameterSequence++;
@@ -296,32 +344,52 @@ namespace EZNEW.Data.Oracle
                 var valueQueryObjectName = DataManager.GetQueryRelationObjectName(DatabaseServerType.Oracle, valueQuery);
                 if (valueQuery.QueryFields.IsNullOrEmpty())
                 {
-                    throw new EZNEWException($"The {valueQueryObjectName} query object that is a subquery must have at least one query field set");
+                    throw new EZNEWException($"Subquery: {valueQueryObjectName} must set query field");
                 }
                 var valueQueryField = DataManager.GetField(DatabaseServerType.Oracle, valueQuery, valueQuery.QueryFields.First());
                 string subObjName = GetNewSubObjectPetName();
                 var subqueryLimitResult = GetSubqueryLimitCondition(sqlOperator, valueQuery.QuerySize);
-                string topString = subqueryLimitResult.Item2;
-                var userOrder = !string.IsNullOrWhiteSpace(topString);
+                string limitString = subqueryLimitResult.Item2;
+                bool userOrder = !string.IsNullOrWhiteSpace(limitString);
                 var subQueryResult = ExecuteTranslate(valueQuery, parameters, subObjName, true, userOrder);
-                string conditionString = subQueryResult.ConditionString;
                 string orderString = subQueryResult.OrderString;
-                if (!string.IsNullOrWhiteSpace(conditionString))
-                {
-                    conditionString = userOrder ? $"WHERE {conditionString} AND {topString}" : $"WHERE {conditionString}";
-                }
-                if (!string.IsNullOrWhiteSpace(orderString))
-                {
-                    orderString = $"ORDER BY {orderString}";
-                }
+                bool hasOrder = !string.IsNullOrWhiteSpace(orderString);
+                orderString = hasOrder ? $"ORDER BY {orderString}" : string.Empty;
+                bool hasCombine = string.IsNullOrWhiteSpace(subQueryResult.CombineScript);
+                string joinScript = subQueryResult.AllowJoin ? subQueryResult.JoinScript : string.Empty;
+                limitString = userOrder ? hasCombine || hasOrder ? $"WHERE {limitString}" : limitString : string.Empty;
+                string conditionString = OracleFactory.CombineLimitCondition(subQueryResult.ConditionString, hasCombine || (userOrder && hasOrder) ? string.Empty : limitString);
+
                 string valueQueryCondition;
-                if (subqueryLimitResult.Item1)
+                if (subqueryLimitResult.Item1) //use wapper
                 {
-                    valueQueryCondition = $"{ConvertCriteriaName(valueQuery, objectName, criteria)} {sqlOperator} (SELECT {valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM {valueQueryObjectName} {subObjName} {(subQueryResult.AllowJoin ? subQueryResult.JoinScript : string.Empty)} {conditionString} {orderString}) S{subObjName})";
+                    if (hasCombine)
+                    {
+                        valueQueryCondition = userOrder && hasOrder
+                            ? $"{criteriaFieldName} {sqlOperator} (SELECT S{subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {subQueryResult.CombineScript}) {subObjName} {orderString}) {subObjName} {limitString}) S{subObjName})"
+                            : $"{criteriaFieldName} {sqlOperator} (SELECT S{subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {subQueryResult.CombineScript}) {subObjName} {limitString} {orderString}) S{subObjName})";
+                    }
+                    else
+                    {
+                        valueQueryCondition = userOrder && hasOrder
+                            ? $"{criteriaFieldName} {sqlOperator} (SELECT S{subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {orderString}) {subObjName} {limitString}) S{subObjName})"
+                            : $"{criteriaFieldName} {sqlOperator} (SELECT S{subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {orderString}) S{subObjName})";
+                    }
                 }
                 else
                 {
-                    valueQueryCondition = $"{ConvertCriteriaName(valueQuery, objectName, criteria)} {sqlOperator} (SELECT {subObjName}.{valueQueryField.FieldName} FROM {valueQueryObjectName} {subObjName} {(subQueryResult.AllowJoin ? subQueryResult.JoinScript : string.Empty)} {conditionString} {orderString})";
+                    if (hasCombine)
+                    {
+                        valueQueryCondition = userOrder && hasOrder
+                            ? $"{criteriaFieldName} {sqlOperator} (SELECT {subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {subQueryResult.CombineScript}) {subObjName} {orderString}) {subObjName} {limitString})"
+                            : $"{criteriaFieldName} {sqlOperator} (SELECT {subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {subQueryResult.CombineScript}) {subObjName} {limitString} {orderString})";
+                    }
+                    else
+                    {
+                        valueQueryCondition = userOrder && hasOrder
+                            ? $"{criteriaFieldName} {sqlOperator} (SELECT {subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {orderString}) {subObjName} {limitString})"
+                            : $"{criteriaFieldName} {sqlOperator} (SELECT {subObjName}.{valueQueryField.FieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {orderString})";
+                    }
                 }
                 var valueQueryResult = TranslateResult.CreateNewResult(valueQueryCondition);
                 if (!subQueryResult.WithScripts.IsNullOrEmpty())
@@ -333,7 +401,7 @@ namespace EZNEW.Data.Oracle
                 return valueQueryResult;
             }
             parameters.Add(parameterName, FormatCriteriaValue(criteria.Operator, criteria.GetCriteriaRealValue()));
-            var criteriaCondition = $"{ConvertCriteriaName(query, objectName, criteria)} {sqlOperator} {parameterPrefix}{parameterName}";
+            var criteriaCondition = $"{criteriaFieldName} {sqlOperator} {parameterPrefix}{parameterName}";
             return TranslateResult.CreateNewResult(criteriaCondition);
         }
 
@@ -462,18 +530,17 @@ namespace EZNEW.Data.Oracle
         /// format criteria name
         /// </summary>
         /// <param name="objectName">object name</param>
-        /// <param name="fieldName">field name</param>
+        /// <param name="propertyName">field name</param>
         /// <param name="convert">convert</param>
         /// <returns></returns>
-        string FormatCriteriaName(IQuery query, string objectName, string fieldName, ICriteriaConverter convert)
+        string FormatCriteriaName(IQuery query, string objectName, string propertyName, ICriteriaConverter convert)
         {
-            var field = DataManager.GetField(DatabaseServerType.Oracle, query, fieldName);
-            fieldName = field.FieldName;
+            var field = DataManager.GetField(DatabaseServerType.Oracle, query, propertyName);
             if (convert == null)
             {
-                return $"{objectName}.{fieldName}";
+                return $"{objectName}.{field.FieldName}";
             }
-            return OracleFactory.ParseCriteriaConverter(convert, objectName, fieldName);
+            return OracleFactory.ParseCriteriaConverter(convert, objectName, field.FieldName);
         }
 
         /// <summary>
@@ -484,6 +551,26 @@ namespace EZNEW.Data.Oracle
         string GetJoinOperator(JoinType joinType)
         {
             return joinOperatorDict[joinType];
+        }
+
+        /// <summary>
+        /// Determines whether position join condition to connection
+        /// </summary>
+        /// <param name="joinType">Join type</param>
+        /// <returns></returns>
+        bool PositionJoinConditionToConnection(JoinType joinType)
+        {
+            switch (joinType)
+            {
+                case JoinType.CrossJoin:
+                    return false;
+                case JoinType.InnerJoin:
+                case JoinType.LeftJoin:
+                case JoinType.RightJoin:
+                case JoinType.FullJoin:
+                default:
+                    return true;
+            }
         }
 
         /// <summary>
@@ -504,18 +591,29 @@ namespace EZNEW.Data.Oracle
             bool useValueAsSource = false;
             if (joinFields.IsNullOrEmpty())
             {
-                joinFields = EntityManager.GetRelationFields(sourceEntityType, targetEntityType);
+                if (sourceEntityType == targetEntityType)
+                {
+                    var primaryKeys = EntityManager.GetPrimaryKeys(sourceEntityType);
+                    if (primaryKeys.IsNullOrEmpty())
+                    {
+                        return string.Empty;
+                    }
+                    joinFields = primaryKeys.ToDictionary(c => c, c => c);
+                }
+                else
+                {
+                    joinFields = EntityManager.GetRelationFields(sourceEntityType, targetEntityType);
+                    if (joinFields.IsNullOrEmpty())
+                    {
+                        useValueAsSource = true;
+                        joinFields = EntityManager.GetRelationFields(targetEntityType, sourceEntityType);
+                    }
+                }
+                if (joinFields.IsNullOrEmpty())
+                {
+                    return string.Empty;
+                }
             }
-            if (joinFields.IsNullOrEmpty())
-            {
-                useValueAsSource = true;
-                joinFields = EntityManager.GetRelationFields(targetEntityType, sourceEntityType);
-            }
-            if (joinFields.IsNullOrEmpty())
-            {
-                return string.Empty;
-            }
-
             List<string> joinList = new List<string>();
             foreach (var joinField in joinFields)
             {
@@ -629,6 +727,27 @@ namespace EZNEW.Data.Oracle
                     break;
             }
             return new Tuple<bool, string>(useWapper, limitString);
+        }
+
+        /// <summary>
+        /// Get combine operator
+        /// </summary>
+        /// <param name="combineType">Combine type</param>
+        /// <returns>Return combine operator</returns>
+        string GetCombineOperator(CombineType combineType)
+        {
+            switch (combineType)
+            {
+                case CombineType.UnionAll:
+                default:
+                    return "UNION ALL";
+                case CombineType.Union:
+                    return "UNION";
+                case CombineType.Except:
+                    return "MINUS";
+                case CombineType.Intersect:
+                    return "INTERSECT";
+            }
         }
 
         #endregion
