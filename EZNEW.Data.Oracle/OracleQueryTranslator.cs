@@ -209,7 +209,7 @@ namespace EZNEW.Data.Oracle
                         else
                         {
                             string combineJoinObjName = GetNewSubObjectPetName();
-                            string joinConnection = GetJoinCondition(query, joinItem, objectName, combineJoinObjName);
+                            string joinConnection = GetJoinCondition(query, joinItem, conditionObjectName, combineJoinObjName);
                             string combineQueryFields = string.Join(",", OracleFactory.FormatQueryFields(joinObjName, joinItem.JoinQuery, joinQueryEntityType, true, false));
                             string combineCondition = string.IsNullOrWhiteSpace(joinQueryResult.ConditionString) ? string.Empty : "WHERE " + joinQueryResult.ConditionString;
                             joinBuilder.Append($" {GetJoinOperator(joinItem.JoinType)} (SELECT {combineQueryFields} FROM {joinQueryObjectName} {joinObjName} {(joinQueryResult.AllowJoin ? joinQueryResult.JoinScript : string.Empty)} {combineCondition} {joinQueryResult.CombineScript}) {combineJoinObjName}{joinConnection}");
@@ -237,10 +237,12 @@ namespace EZNEW.Data.Oracle
                     EntityField recurveRelationField = DataManager.GetField(DatabaseServerType.Oracle, query, query.RecurveCriteria.RelationKey);
                     string queryObjectName = recurveTableName = DataManager.GetQueryRelationObjectName(DatabaseServerType.Oracle, query);
                     recurveTablePetName = conditionObjectName;
-                    string withScript = $"SELECT {conditionObjectName}.{recurveField.FieldName} FROM {queryObjectName} {conditionObjectName} {joinScript} " +
+                    string recurveFieldName = OracleFactory.FormatFieldName(recurveField.FieldName);
+                    string recurveRelationFieldName = OracleFactory.FormatFieldName(recurveRelationField.FieldName);
+                    string withScript = $"SELECT {conditionObjectName}.{recurveFieldName} FROM {queryObjectName} {conditionObjectName} {joinScript} " +
                         $"START WITH {(string.IsNullOrWhiteSpace(nowConditionString) ? "1 = 1 " : nowConditionString)} " +
-                        $"CONNECT BY PRIOR {(query.RecurveCriteria.Direction == RecurveDirection.Up ? $"{conditionObjectName}.{recurveRelationField.FieldName} = {conditionObjectName}.{recurveField.FieldName}" : $"{conditionObjectName}.{recurveField.FieldName} = {conditionObjectName}.{recurveRelationField.FieldName}")}";
-                    conditionString = $"{objectName}.{recurveField.FieldName} IN ({withScript})";
+                        $"CONNECT BY PRIOR {(query.RecurveCriteria.Direction == RecurveDirection.Up ? $"{conditionObjectName}.{recurveRelationFieldName} = {conditionObjectName}.{recurveFieldName}" : $"{conditionObjectName}.{recurveFieldName} = {conditionObjectName}.{recurveRelationFieldName}")}";
+                    conditionString = $"{objectName}.{recurveFieldName} IN ({withScript})";
                     withScripts.Add(withScript);
                 }
 
@@ -361,19 +363,20 @@ namespace EZNEW.Data.Oracle
                 string conditionString = OracleFactory.CombineLimitCondition(subQueryResult.ConditionString, hasCombine || (userOrder && hasOrder) ? string.Empty : limitString);
 
                 string valueQueryCondition;
+                string valueQueryFieldName = OracleFactory.FormatFieldName(valueQueryField.FieldName);
                 if (subqueryLimitResult.Item1) //use wapper
                 {
                     if (hasCombine)
                     {
                         valueQueryCondition = userOrder && hasOrder
-                            ? $"{criteriaFieldName} {sqlOperator} (SELECT S{subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {subQueryResult.CombineScript}) {subObjName} {orderString}) {subObjName} {limitString}) S{subObjName})"
-                            : $"{criteriaFieldName} {sqlOperator} (SELECT S{subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {subQueryResult.CombineScript}) {subObjName} {limitString} {orderString}) S{subObjName})";
+                            ? $"{criteriaFieldName} {sqlOperator} (SELECT S{subObjName}.{valueQueryFieldName} FROM (SELECT {subObjName}.{valueQueryFieldName} FROM (SELECT {subObjName}.{valueQueryFieldName} FROM (SELECT {subObjName}.{valueQueryFieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {subQueryResult.CombineScript}) {subObjName} {orderString}) {subObjName} {limitString}) S{subObjName})"
+                            : $"{criteriaFieldName} {sqlOperator} (SELECT S{subObjName}.{valueQueryFieldName} FROM (SELECT {subObjName}.{valueQueryFieldName} FROM (SELECT {subObjName}.{valueQueryFieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {subQueryResult.CombineScript}) {subObjName} {limitString} {orderString}) S{subObjName})";
                     }
                     else
                     {
                         valueQueryCondition = userOrder && hasOrder
-                            ? $"{criteriaFieldName} {sqlOperator} (SELECT S{subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {orderString}) {subObjName} {limitString}) S{subObjName})"
-                            : $"{criteriaFieldName} {sqlOperator} (SELECT S{subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {orderString}) S{subObjName})";
+                            ? $"{criteriaFieldName} {sqlOperator} (SELECT S{subObjName}.{valueQueryFieldName} FROM (SELECT {subObjName}.{valueQueryFieldName} FROM (SELECT {subObjName}.{valueQueryFieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {orderString}) {subObjName} {limitString}) S{subObjName})"
+                            : $"{criteriaFieldName} {sqlOperator} (SELECT S{subObjName}.{valueQueryFieldName} FROM (SELECT {subObjName}.{valueQueryFieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {orderString}) S{subObjName})";
                     }
                 }
                 else
@@ -381,14 +384,14 @@ namespace EZNEW.Data.Oracle
                     if (hasCombine)
                     {
                         valueQueryCondition = userOrder && hasOrder
-                            ? $"{criteriaFieldName} {sqlOperator} (SELECT {subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {subQueryResult.CombineScript}) {subObjName} {orderString}) {subObjName} {limitString})"
-                            : $"{criteriaFieldName} {sqlOperator} (SELECT {subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {subQueryResult.CombineScript}) {subObjName} {limitString} {orderString})";
+                            ? $"{criteriaFieldName} {sqlOperator} (SELECT {subObjName}.{valueQueryFieldName} FROM (SELECT {subObjName}.{valueQueryFieldName} FROM (SELECT {subObjName}.{valueQueryFieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {subQueryResult.CombineScript}) {subObjName} {orderString}) {subObjName} {limitString})"
+                            : $"{criteriaFieldName} {sqlOperator} (SELECT {subObjName}.{valueQueryFieldName} FROM (SELECT {subObjName}.{valueQueryFieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {subQueryResult.CombineScript}) {subObjName} {limitString} {orderString})";
                     }
                     else
                     {
                         valueQueryCondition = userOrder && hasOrder
-                            ? $"{criteriaFieldName} {sqlOperator} (SELECT {subObjName}.{valueQueryField.FieldName} FROM (SELECT {subObjName}.{valueQueryField.FieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {orderString}) {subObjName} {limitString})"
-                            : $"{criteriaFieldName} {sqlOperator} (SELECT {subObjName}.{valueQueryField.FieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {orderString})";
+                            ? $"{criteriaFieldName} {sqlOperator} (SELECT {subObjName}.{valueQueryFieldName} FROM (SELECT {subObjName}.{valueQueryFieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {orderString}) {subObjName} {limitString})"
+                            : $"{criteriaFieldName} {sqlOperator} (SELECT {subObjName}.{valueQueryFieldName} FROM {valueQueryObjectName} {subObjName} {joinScript} {conditionString} {orderString})";
                     }
                 }
                 var valueQueryResult = TranslateResult.CreateNewResult(valueQueryCondition);
@@ -538,7 +541,7 @@ namespace EZNEW.Data.Oracle
             var field = DataManager.GetField(DatabaseServerType.Oracle, query, propertyName);
             if (convert == null)
             {
-                return $"{objectName}.{field.FieldName}";
+                return $"{objectName}.{OracleFactory.FormatFieldName(field.FieldName)}";
             }
             return OracleFactory.ParseCriteriaConverter(convert, objectName, field.FieldName);
         }
@@ -623,7 +626,9 @@ namespace EZNEW.Data.Oracle
                 }
                 var sourceField = DataManager.GetField(DatabaseServerType.Oracle, sourceEntityType, joinField.Key);
                 var targetField = DataManager.GetField(DatabaseServerType.Oracle, targetEntityType, joinField.Value);
-                joinList.Add($" {sourceObjShortName}.{(useValueAsSource ? targetField.FieldName : sourceField.FieldName)}{GetJoinOperator(joinItem.Operator)}{targetObjShortName}.{(useValueAsSource ? sourceField.FieldName : targetField.FieldName)}");
+                string sourceFieldName = OracleFactory.FormatFieldName(sourceField.FieldName);
+                string targetFieldName = OracleFactory.FormatFieldName(targetField.FieldName);
+                joinList.Add($" {sourceObjShortName}.{(useValueAsSource ? targetFieldName : sourceFieldName)}{GetJoinOperator(joinItem.Operator)}{targetObjShortName}.{(useValueAsSource ? sourceFieldName : targetFieldName)}");
             }
             return joinList.IsNullOrEmpty() ? string.Empty : " ON" + string.Join(" AND", joinList);
         }

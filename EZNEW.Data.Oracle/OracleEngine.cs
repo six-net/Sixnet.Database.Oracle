@@ -300,6 +300,7 @@ namespace EZNEW.Data.Oracle
                 var parameterValue = parameters.GetParameterValue(field.PropertyName);
                 var parameterName = field.PropertyName;
                 string newValueExpression = string.Empty;
+                string fieldName = OracleFactory.FormatFieldName(field.FieldName);
                 if (parameterValue != null)
                 {
                     parameterSequence++;
@@ -313,7 +314,7 @@ namespace EZNEW.Data.Oracle
                         {
                             var calculateModifyValue = parameterValue as CalculateModifyValue;
                             string calChar = OracleFactory.GetCalculateChar(calculateModifyValue.Operator);
-                            newValueExpression = $"{translator.ObjectPetName}.{field.FieldName}{calChar}{OracleFactory.parameterPrefix}{parameterName}";
+                            newValueExpression = $"{translator.ObjectPetName}.{fieldName}{calChar}{OracleFactory.parameterPrefix}{parameterName}";
                         }
                     }
                 }
@@ -321,7 +322,7 @@ namespace EZNEW.Data.Oracle
                 {
                     newValueExpression = $"{OracleFactory.parameterPrefix}{parameterName}";
                 }
-                updateSetArray.Add($"{translator.ObjectPetName}.{field.FieldName}={newValueExpression}");
+                updateSetArray.Add($"{translator.ObjectPetName}.{fieldName}={newValueExpression}");
             }
             string cmdText = $"{preScript}UPDATE {objectName} {translator.ObjectPetName} {joinScript} SET {string.Join(",", updateSetArray)} {conditionString}";
             translator.ParameterSequence = parameterSequence;
@@ -564,7 +565,7 @@ namespace EZNEW.Data.Oracle
                 case QueryCommandType.QueryObject:
                 default:
                     string objectName = DataManager.GetEntityObjectName(DatabaseServerType.Oracle, command.EntityType, command.ObjectName);
-                    string defaultFieldName = OracleFactory.GetDefaultFieldName(command.EntityType);
+                    string defaultFieldName = OracleFactory.FormatFieldName(OracleFactory.GetDefaultFieldName(command.EntityType));
                     int beginRow = offsetNum + 1;
                     string conditionString = string.IsNullOrWhiteSpace(tranResult.ConditionString) ? string.Empty : $" WHERE {tranResult.ConditionString}";
                     string offsetConditionString = $"WHERE EZNEW_ROWNUMBER BETWEEN {beginRow} AND {beginRow + size}";

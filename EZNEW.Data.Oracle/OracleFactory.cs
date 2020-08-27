@@ -66,10 +66,31 @@ namespace EZNEW.Data.Oracle
             [OperateType.Count] = "COUNT",
         };
 
+        internal static bool wrapFieldWithQuotes = true;
+
+        internal static bool uppercase = true;
+
         static OracleFactory()
         {
             EnableTraceLog = TraceLogSwitchManager.ShouldTraceFramework();
         }
+
+        #region Configure oracle
+
+        /// <summary>
+        /// Configure oracle
+        /// </summary>
+        /// <param name="oracleOption">Oracle option</param>
+        public static void Configure(OracleOption oracleOption)
+        {
+            if (oracleOption != null)
+            {
+                wrapFieldWithQuotes = oracleOption.WrapWithQuotes;
+                uppercase = oracleOption.Uppercase;
+            }
+        }
+
+        #endregion
 
         #region Get database connection
 
@@ -78,7 +99,7 @@ namespace EZNEW.Data.Oracle
         /// </summary>
         /// <param name="server">database server</param>
         /// <returns>return database connection</returns>
-        public static IDbConnection GetConnection(DatabaseServer server)
+        internal static IDbConnection GetConnection(DatabaseServer server)
         {
             return DataManager.GetDatabaseConnection(server) ?? new OracleConnection(server.ConnectionString);
         }
@@ -135,7 +156,7 @@ namespace EZNEW.Data.Oracle
             switch (option.CriteriaConverter.Name)
             {
                 case CriteriaConverterNames.StringLength:
-                    format = $"LENGTH({option.ObjectName}.{option.FieldName})";
+                    format = $"LENGTH({option.ObjectName}.{FormatFieldName(option.FieldName)})";
                     break;
             }
             if (string.IsNullOrWhiteSpace(format))
@@ -196,7 +217,7 @@ namespace EZNEW.Data.Oracle
         /// </summary>
         /// <param name="command">command</param>
         /// <returns></returns>
-        public static CommandType GetCommandType(RdbCommand command)
+        internal static CommandType GetCommandType(RdbCommand command)
         {
             return command.CommandType == CommandTextType.Procedure ? CommandType.StoredProcedure : CommandType.Text;
         }
@@ -210,7 +231,7 @@ namespace EZNEW.Data.Oracle
         /// </summary>
         /// <param name="calculate">calculate operator</param>
         /// <returns></returns>
-        public static string GetCalculateChar(CalculateOperator calculate)
+        internal static string GetCalculateChar(CalculateOperator calculate)
         {
             CalculateOperators.TryGetValue(calculate, out var opearterChar);
             return opearterChar;
@@ -225,7 +246,7 @@ namespace EZNEW.Data.Oracle
         /// </summary>
         /// <param name="funcType">function type</param>
         /// <returns></returns>
-        public static string GetAggregateFunctionName(OperateType funcType)
+        internal static string GetAggregateFunctionName(OperateType funcType)
         {
             AggregateFunctions.TryGetValue(funcType, out var funcName);
             return funcName;
@@ -240,7 +261,7 @@ namespace EZNEW.Data.Oracle
         /// </summary>
         /// <param name="operateType">operate type</param>
         /// <returns></returns>
-        public static bool AggregateOperateMustNeedField(OperateType operateType)
+        internal static bool AggregateOperateMustNeedField(OperateType operateType)
         {
             return operateType != OperateType.Count;
         }
@@ -256,7 +277,7 @@ namespace EZNEW.Data.Oracle
         /// <param name="parameters">parameters</param>
         /// <param name="parameterSequence">parameter sequence</param>
         /// <returns>first:fields,second:parameter fields,third:parameters</returns>
-        public static Tuple<List<string>, List<string>, CommandParameters> FormatInsertFields(int fieldCount, IEnumerable<EntityField> fields, object parameters, int parameterSequence)
+        internal static Tuple<List<string>, List<string>, CommandParameters> FormatInsertFields(int fieldCount, IEnumerable<EntityField> fields, object parameters, int parameterSequence)
         {
             if (fields.IsNullOrEmpty())
             {
@@ -267,7 +288,7 @@ namespace EZNEW.Data.Oracle
             CommandParameters cmdParameters = ParseParameters(parameters);
             foreach (var field in fields)
             {
-                formatFields.Add(field.FieldName);
+                formatFields.Add(FormatFieldName(field.FieldName));
 
                 //parameter name
                 parameterSequence++;
@@ -289,7 +310,7 @@ namespace EZNEW.Data.Oracle
         /// </summary>
         /// <param name="fields">fields</param>
         /// <returns></returns>
-        public static IEnumerable<string> FormatQueryFields(string databasePetName, IQuery query, Type entityType, bool forceMustFields, bool convertField)
+        internal static IEnumerable<string> FormatQueryFields(string databasePetName, IQuery query, Type entityType, bool forceMustFields, bool convertField)
         {
             if (query == null || entityType == null)
             {
@@ -299,7 +320,7 @@ namespace EZNEW.Data.Oracle
             return queryFields?.Select(field => FormatField(databasePetName, field, convertField)) ?? Array.Empty<string>();
         }
 
-        public static IEnumerable<string> FormatQueryFields(string dataBaseObjectName, IEnumerable<EntityField> fields, bool convertField)
+        internal static IEnumerable<string> FormatQueryFields(string dataBaseObjectName, IEnumerable<EntityField> fields, bool convertField)
         {
             return fields?.Select(field => FormatField(dataBaseObjectName, field, convertField)) ?? Array.Empty<string>();
         }
@@ -314,13 +335,14 @@ namespace EZNEW.Data.Oracle
         /// <param name="dataBaseObjectName">database object name</param>
         /// <param name="field">field</param>
         /// <returns></returns>
-        public static string FormatField(string dataBaseObjectName, EntityField field, bool convertField)
+        internal static string FormatField(string dataBaseObjectName, EntityField field, bool convertField)
         {
             if (field == null)
             {
                 return string.Empty;
             }
-            var formatValue = $"{dataBaseObjectName}.{field.FieldName}";
+            string fieldName = FormatFieldName(field.FieldName);
+            var formatValue = $"{dataBaseObjectName}.{fieldName}";
             if (!string.IsNullOrWhiteSpace(field.QueryFormat))
             {
                 formatValue = string.Format(field.QueryFormat + " AS \"{1}\"", formatValue, field.PropertyName);
@@ -332,11 +354,33 @@ namespace EZNEW.Data.Oracle
             return formatValue;
         }
 
+        /// <summary>
+        /// Format field name
+        /// </summary>
+        /// <param name="fieldName">Field name</param>
+        /// <returns></returns>
+        internal static string FormatFieldName(string fieldName)
+        {
+            if (string.IsNullOrWhiteSpace(fieldName))
+            {
+                return string.Empty;
+            }
+            if (uppercase)
+            {
+                fieldName = fieldName.ToUpper();
+            }
+            if (wrapFieldWithQuotes)
+            {
+                fieldName = $"\"{fieldName}\"";
+            }
+            return fieldName;
+        }
+
         #endregion
 
         #region Get fields
 
-        public static IEnumerable<EntityField> GetQueryFields(IQuery query, Type entityType, bool forceMustFields)
+        internal static IEnumerable<EntityField> GetQueryFields(IQuery query, Type entityType, bool forceMustFields)
         {
             return DataManager.GetQueryFields(DatabaseServerType.Oracle, entityType, query, forceMustFields);
         }
@@ -347,7 +391,7 @@ namespace EZNEW.Data.Oracle
         /// <param name="entityType">entity type</param>
         /// <param name="propertyNames">property names</param>
         /// <returns></returns>
-        public static IEnumerable<EntityField> GetFields(Type entityType, IEnumerable<string> propertyNames)
+        internal static IEnumerable<EntityField> GetFields(Type entityType, IEnumerable<string> propertyNames)
         {
             return DataManager.GetFields(DatabaseServerType.Oracle, entityType, propertyNames);
         }
@@ -361,7 +405,7 @@ namespace EZNEW.Data.Oracle
         /// </summary>
         /// <param name="entityType">Entity type</param>
         /// <returns>Return default field name</returns>
-        public static string GetDefaultFieldName(Type entityType)
+        internal static string GetDefaultFieldName(Type entityType)
         {
             if (entityType == null)
             {
@@ -380,7 +424,7 @@ namespace EZNEW.Data.Oracle
         /// <param name="parameterName">parameter name</param>
         /// <param name="parameterSequence">parameter sequence</param>
         /// <returns></returns>
-        public static string FormatParameterName(string parameterName, int parameterSequence)
+        internal static string FormatParameterName(string parameterName, int parameterSequence)
         {
             return parameterName + parameterSequence;
         }
@@ -394,7 +438,7 @@ namespace EZNEW.Data.Oracle
         /// </summary>
         /// <param name="originParameters">origin parameter</param>
         /// <returns></returns>
-        public static CommandParameters ParseParameters(object originParameters)
+        internal static CommandParameters ParseParameters(object originParameters)
         {
             if (originParameters == null)
             {
@@ -438,7 +482,7 @@ namespace EZNEW.Data.Oracle
         /// </summary>
         /// <param name="cmdParameters">command parameters</param>
         /// <returns></returns>
-        public static DynamicParameters ConvertCmdParameters(CommandParameters cmdParameters)
+        internal static DynamicParameters ConvertCmdParameters(CommandParameters cmdParameters)
         {
             if (cmdParameters?.Parameters.IsNullOrEmpty() ?? true)
             {
@@ -471,7 +515,7 @@ namespace EZNEW.Data.Oracle
         /// </summary>
         /// <param name="dataIsolationLevel">data isolation level</param>
         /// <returns></returns>
-        public static IsolationLevel? GetTransactionIsolationLevel(DataIsolationLevel? dataIsolationLevel)
+        internal static IsolationLevel? GetTransactionIsolationLevel(DataIsolationLevel? dataIsolationLevel)
         {
             if (!dataIsolationLevel.HasValue)
             {
@@ -490,7 +534,7 @@ namespace EZNEW.Data.Oracle
         /// <param name="connection">connection</param>
         /// <param name="query">query</param>
         /// <returns></returns>
-        public static IDbTransaction GetQueryTransaction(IDbConnection connection, IQuery query)
+        internal static IDbTransaction GetQueryTransaction(IDbConnection connection, IQuery query)
         {
             DataIsolationLevel? dataIsolationLevel = query?.IsolationLevel;
             if (!dataIsolationLevel.HasValue)
@@ -519,7 +563,7 @@ namespace EZNEW.Data.Oracle
         /// <param name="connection">connection</param>
         /// <param name="executeOption">execute option</param>
         /// <returns></returns>
-        public static IDbTransaction GetExecuteTransaction(IDbConnection connection, CommandExecuteOption executeOption)
+        internal static IDbTransaction GetExecuteTransaction(IDbConnection connection, CommandExecuteOption executeOption)
         {
             DataIsolationLevel? dataIsolationLevel = executeOption?.IsolationLevel;
             if (!dataIsolationLevel.HasValue)
