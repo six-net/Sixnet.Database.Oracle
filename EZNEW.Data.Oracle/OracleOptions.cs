@@ -7,7 +7,7 @@ namespace EZNEW.Data.Oracle
     /// <summary>
     /// Oracle option
     /// </summary>
-    public class OracleOption
+    public class OracleOptions
     {
         /// <summary>
         /// Whether wrap field and table name with quotes

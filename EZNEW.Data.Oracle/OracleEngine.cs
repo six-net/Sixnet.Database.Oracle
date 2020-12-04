@@ -30,7 +30,7 @@ namespace EZNEW.Data.Oracle
         /// <param name="executeOption">execute option</param>
         /// <param name="commands">commands</param>
         /// <returns>data numbers</returns>
-        public int Execute(DatabaseServer server, CommandExecuteOption executeOption, IEnumerable<ICommand> commands)
+        public int Execute(DatabaseServer server, CommandExecuteOptions executeOption, IEnumerable<ICommand> commands)
         {
             return ExecuteAsync(server, executeOption, commands).Result;
         }
@@ -42,7 +42,7 @@ namespace EZNEW.Data.Oracle
         /// <param name="executeOption">execute option</param>
         /// <param name="commands">commands</param>
         /// <returns>data numbers</returns>
-        public int Execute(DatabaseServer server, CommandExecuteOption executeOption, params ICommand[] commands)
+        public int Execute(DatabaseServer server, CommandExecuteOptions executeOption, params ICommand[] commands)
         {
             return ExecuteAsync(server, executeOption, commands).Result;
         }
@@ -54,7 +54,7 @@ namespace EZNEW.Data.Oracle
         /// <param name="executeOption">execute option</param>
         /// <param name="commands">commands</param>
         /// <returns>data numbers</returns>
-        public async Task<int> ExecuteAsync(DatabaseServer server, CommandExecuteOption executeOption, IEnumerable<ICommand> commands)
+        public async Task<int> ExecuteAsync(DatabaseServer server, CommandExecuteOptions executeOption, IEnumerable<ICommand> commands)
         {
             #region group execute commands
 
@@ -135,7 +135,7 @@ namespace EZNEW.Data.Oracle
         /// <param name="executeOption">execute option</param>
         /// <param name="commands">commands</param>
         /// <returns>data numbers</returns>
-        public async Task<int> ExecuteAsync(DatabaseServer server, CommandExecuteOption executeOption, params ICommand[] commands)
+        public async Task<int> ExecuteAsync(DatabaseServer server, CommandExecuteOptions executeOption, params ICommand[] commands)
         {
             IEnumerable<ICommand> cmdCollection = commands;
             return await ExecuteAsync(server, executeOption, cmdCollection).ConfigureAwait(false);
@@ -149,7 +149,7 @@ namespace EZNEW.Data.Oracle
         /// <param name="executeCommands">execute commands</param>
         /// <param name="useTransaction">use transaction</param>
         /// <returns></returns>
-        async Task<int> ExecuteCommandAsync(DatabaseServer server, CommandExecuteOption executeOption, IEnumerable<DatabaseExecuteCommand> executeCommands, bool useTransaction)
+        async Task<int> ExecuteCommandAsync(DatabaseServer server, CommandExecuteOptions executeOption, IEnumerable<DatabaseExecuteCommand> executeCommands, bool useTransaction)
         {
             int resultValue = 0;
             bool success = true;
@@ -255,7 +255,7 @@ namespace EZNEW.Data.Oracle
             {
                 return null;
             }
-            string cmdText = $"INSERT INTO {objectName} ({string.Join(",", insertFormatResult.Item1)}) VALUES ({string.Join(",", insertFormatResult.Item2)})";
+            string cmdText = $"INSERT INTO {OracleFactory.FormatTableName(objectName)} ({string.Join(",", insertFormatResult.Item1)}) VALUES ({string.Join(",", insertFormatResult.Item2)})";
             CommandParameters parameters = insertFormatResult.Item3;
             translator.ParameterSequence += fieldCount;
             return new DatabaseExecuteCommand()
@@ -324,7 +324,7 @@ namespace EZNEW.Data.Oracle
                 }
                 updateSetArray.Add($"{translator.ObjectPetName}.{fieldName}={newValueExpression}");
             }
-            string cmdText = $"{preScript}UPDATE {objectName} {translator.ObjectPetName} {joinScript} SET {string.Join(",", updateSetArray)} {conditionString}";
+            string cmdText = $"{preScript}UPDATE {OracleFactory.FormatTableName(objectName)} {translator.ObjectPetName} {joinScript} SET {string.Join(",", updateSetArray)} {conditionString}";
             translator.ParameterSequence = parameterSequence;
 
             #endregion
@@ -370,7 +370,7 @@ namespace EZNEW.Data.Oracle
             #region script
 
             string objectName = DataManager.GetEntityObjectName(DatabaseServerType.Oracle, command.EntityType, command.ObjectName);
-            string cmdText = $"{preScript}DELETE {objectName} {translator.ObjectPetName} {joinScript} {conditionString}";
+            string cmdText = $"{preScript}DELETE {OracleFactory.FormatTableName(objectName)} {translator.ObjectPetName} {joinScript} {conditionString}";
 
             #endregion
 
@@ -450,6 +450,7 @@ namespace EZNEW.Data.Oracle
                     var queryFields = OracleFactory.GetQueryFields(command.Query, command.EntityType, true);
                     var innerFormatedField = string.Join(",", OracleFactory.FormatQueryFields(translator.ObjectPetName, queryFields, false));
                     var outputFormatedField = string.Join(",", OracleFactory.FormatQueryFields(translator.ObjectPetName, queryFields, true));
+                    objectName = OracleFactory.FormatTableName(objectName);
                     if (hasCombine)
                     {
                         cmdText = hasOrder && hasLimit
@@ -574,6 +575,7 @@ namespace EZNEW.Data.Oracle
                     var queryFields = OracleFactory.GetQueryFields(command.Query, command.EntityType, true);
                     var innerFormatedField = string.Join(",", OracleFactory.FormatQueryFields(translator.ObjectPetName, queryFields, false));
                     var outputFormatedField = string.Join(",", OracleFactory.FormatQueryFields(translator.ObjectPetName, queryFields, true));
+                    objectName = OracleFactory.FormatTableName(objectName);
                     cmdText = string.IsNullOrWhiteSpace(tranResult.CombineScript)
                         ? $"{tranResult.PreScript}SELECT {outputFormatedField} FROM ({totalCountAndRowNumber},{innerFormatedField} FROM {objectName} {translator.ObjectPetName} {joinScript} {conditionString}) {translator.ObjectPetName} {offsetConditionString}"
                         : $"{tranResult.PreScript}SELECT {outputFormatedField} FROM ({totalCountAndRowNumber},{innerFormatedField} FROM (SELECT {innerFormatedField} FROM {objectName} {translator.ObjectPetName} {joinScript} {conditionString} {tranResult.CombineScript}) {translator.ObjectPetName}) {translator.ObjectPetName} {offsetConditionString}";
@@ -638,7 +640,7 @@ namespace EZNEW.Data.Oracle
 
             #region script
 
-            string objectName = DataManager.GetEntityObjectName(DatabaseServerType.Oracle, command.EntityType, command.ObjectName);
+            string objectName = OracleFactory.FormatTableName(DataManager.GetEntityObjectName(DatabaseServerType.Oracle, command.EntityType, command.ObjectName));
             string formatedField = string.Join(",", OracleFactory.FormatQueryFields(translator.ObjectPetName, command.Query, command.EntityType, true, false));
             string cmdText = $"{preScript}SELECT CASE WHEN EXISTS(SELECT {formatedField} FROM {objectName} {translator.ObjectPetName} {joinScript} {conditionString} {tranResult.CombineScript}) THEN 1 ELSE 0 END FROM DUAL";
 
@@ -752,6 +754,7 @@ namespace EZNEW.Data.Oracle
                     string objectName = DataManager.GetEntityObjectName(DatabaseServerType.Oracle, command.EntityType, command.ObjectName);
                     var conditionString = string.IsNullOrWhiteSpace(tranResult.ConditionString) ? string.Empty : $"WHERE {tranResult.ConditionString}";
                     var defaultQueryField = OracleFactory.FormatField(translator.ObjectPetName, defaultField, false);
+                    objectName = OracleFactory.FormatTableName(objectName);
                     cmdText = string.IsNullOrWhiteSpace(tranResult.CombineScript)
                         ? $"{tranResult.PreScript}SELECT {funcName}({defaultQueryField}) FROM {objectName} {translator.ObjectPetName} {joinScript} {conditionString}"
                         : $"{tranResult.PreScript}SELECT {funcName}({defaultQueryField}) FROM (SELECT {string.Join(",", OracleFactory.FormatQueryFields(translator.ObjectPetName, command.Query, command.EntityType, true, false))} FROM {objectName} {translator.ObjectPetName} {joinScript} {conditionString} {tranResult.CombineScript}) {translator.ObjectPetName}";

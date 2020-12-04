@@ -33,7 +33,6 @@ namespace EZNEW.Data.Oracle
         const string DescKeyWord = "DESC";
         const string AscKeyWord = "ASC";
         public const string ObjPetName = "TB";
-        const string parameterPrefix = ":";
         const string TreeTableName = "RecurveTable";
         const string TreeTablePetName = "RTT";
         static readonly Dictionary<JoinType, string> joinOperatorDict = new Dictionary<JoinType, string>()
@@ -156,7 +155,7 @@ namespace EZNEW.Data.Oracle
                         string combineObjectName = DataManager.GetQueryRelationObjectName(DatabaseServerType.Oracle, combine.CombineQuery);
                         var combineQueryResult = ExecuteTranslate(combine.CombineQuery, parameters, combineObjectPetName, true, true);
                         string combineConditionString = string.IsNullOrWhiteSpace(combineQueryResult.ConditionString) ? string.Empty : $"WHERE {combineQueryResult.ConditionString}";
-                        combineBuilder.Append($" {GetCombineOperator(combine.CombineType)} SELECT {string.Join(",", OracleFactory.FormatQueryFields(combineObjectPetName, query, query.GetEntityType(), true, false))} FROM {combineObjectName} {combineObjectPetName} {(combineQueryResult.AllowJoin ? combineQueryResult.JoinScript : string.Empty)} {combineConditionString}");
+                        combineBuilder.Append($" {GetCombineOperator(combine.CombineType)} SELECT {string.Join(",", OracleFactory.FormatQueryFields(combineObjectPetName, query, query.GetEntityType(), true, false))} FROM {OracleFactory.FormatTableName(combineObjectName)} {combineObjectPetName} {(combineQueryResult.AllowJoin ? combineQueryResult.JoinScript : string.Empty)} {combineConditionString}");
                         if (!combineQueryResult.WithScripts.IsNullOrEmpty())
                         {
                             withScripts.AddRange(combineQueryResult.WithScripts);
@@ -200,7 +199,7 @@ namespace EZNEW.Data.Oracle
                                 }
                             }
 
-                            joinBuilder.Append($" {GetJoinOperator(joinItem.JoinType)} {joinQueryObjectName} {joinObjName}{joinConnection}");
+                            joinBuilder.Append($" {GetJoinOperator(joinItem.JoinType)} {OracleFactory.FormatTableName(joinQueryObjectName)} {joinObjName}{joinConnection}");
                             if (joinQueryResult.AllowJoin && !string.IsNullOrWhiteSpace(joinQueryResult.JoinScript))
                             {
                                 joinBuilder.Append($" {joinQueryResult.JoinScript}");
@@ -212,7 +211,7 @@ namespace EZNEW.Data.Oracle
                             string joinConnection = GetJoinCondition(query, joinItem, conditionObjectName, combineJoinObjName);
                             string combineQueryFields = string.Join(",", OracleFactory.FormatQueryFields(joinObjName, joinItem.JoinQuery, joinQueryEntityType, true, false));
                             string combineCondition = string.IsNullOrWhiteSpace(joinQueryResult.ConditionString) ? string.Empty : "WHERE " + joinQueryResult.ConditionString;
-                            joinBuilder.Append($" {GetJoinOperator(joinItem.JoinType)} (SELECT {combineQueryFields} FROM {joinQueryObjectName} {joinObjName} {(joinQueryResult.AllowJoin ? joinQueryResult.JoinScript : string.Empty)} {combineCondition} {joinQueryResult.CombineScript}) {combineJoinObjName}{joinConnection}");
+                            joinBuilder.Append($" {GetJoinOperator(joinItem.JoinType)} (SELECT {combineQueryFields} FROM {OracleFactory.FormatTableName(joinQueryObjectName)} {joinObjName} {(joinQueryResult.AllowJoin ? joinQueryResult.JoinScript : string.Empty)} {combineCondition} {joinQueryResult.CombineScript}) {combineJoinObjName}{joinConnection}");
                         }
                         if (!joinQueryResult.WithScripts.IsNullOrEmpty())
                         {
@@ -239,7 +238,7 @@ namespace EZNEW.Data.Oracle
                     recurveTablePetName = conditionObjectName;
                     string recurveFieldName = OracleFactory.FormatFieldName(recurveField.FieldName);
                     string recurveRelationFieldName = OracleFactory.FormatFieldName(recurveRelationField.FieldName);
-                    string withScript = $"SELECT {conditionObjectName}.{recurveFieldName} FROM {queryObjectName} {conditionObjectName} {joinScript} " +
+                    string withScript = $"SELECT {conditionObjectName}.{recurveFieldName} FROM {OracleFactory.FormatTableName(queryObjectName)} {conditionObjectName} {joinScript} " +
                         $"START WITH {(string.IsNullOrWhiteSpace(nowConditionString) ? "1 = 1 " : nowConditionString)} " +
                         $"CONNECT BY PRIOR {(query.RecurveCriteria.Direction == RecurveDirection.Up ? $"{conditionObjectName}.{recurveRelationFieldName} = {conditionObjectName}.{recurveFieldName}" : $"{conditionObjectName}.{recurveFieldName} = {conditionObjectName}.{recurveRelationFieldName}")}";
                     conditionString = $"{objectName}.{recurveFieldName} IN ({withScript})";
@@ -364,6 +363,7 @@ namespace EZNEW.Data.Oracle
 
                 string valueQueryCondition;
                 string valueQueryFieldName = OracleFactory.FormatFieldName(valueQueryField.FieldName);
+                valueQueryObjectName = OracleFactory.FormatTableName(valueQueryObjectName);
                 if (subqueryLimitResult.Item1) //use wapper
                 {
                     if (hasCombine)
@@ -404,7 +404,7 @@ namespace EZNEW.Data.Oracle
                 return valueQueryResult;
             }
             parameters.Add(parameterName, FormatCriteriaValue(criteria.Operator, criteria.GetCriteriaRealValue()));
-            var criteriaCondition = $"{criteriaFieldName} {sqlOperator} {parameterPrefix}{parameterName}";
+            var criteriaCondition = $"{criteriaFieldName} {sqlOperator} {OracleFactory.parameterPrefix}{parameterName}";
             return TranslateResult.CreateNewResult(criteriaCondition);
         }
 

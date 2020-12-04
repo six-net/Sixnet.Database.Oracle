@@ -15,18 +15,19 @@ using EZNEW.Develop.Entity;
 using EZNEW.Dapper;
 using EZNEW.Develop.DataAccess;
 using EZNEW.Develop.Command.Modify;
+using EZNEW.Diagnostics;
 
 namespace EZNEW.Data.Oracle
 {
     /// <summary>
     /// Database server factory
     /// </summary>
-    internal static class OracleFactory
+    public static class OracleFactory
     {
         /// <summary>
         /// Enable trace log
         /// </summary>
-        static readonly bool EnableTraceLog = false;
+        static bool EnableTraceLog = false;
 
         /// <summary>
         /// Trace log split
@@ -42,6 +43,16 @@ namespace EZNEW.Data.Oracle
         /// Parameter prefix
         /// </summary>
         internal const string parameterPrefix = ":";
+
+        /// <summary>
+        /// Key word prefix
+        /// </summary>
+        internal const string KeywordPrefix = "\"";
+
+        /// <summary>
+        /// Key word suffix
+        /// </summary>
+        internal const string KeywordSuffix = "\"";
 
         /// <summary>
         /// Calculate operators
@@ -72,7 +83,10 @@ namespace EZNEW.Data.Oracle
 
         static OracleFactory()
         {
-            EnableTraceLog = TraceLogSwitchManager.ShouldTraceFramework();
+            EnableTraceLog = SwitchManager.ShouldTraceFramework(sw =>
+            {
+                EnableTraceLog = SwitchManager.ShouldTraceFramework();
+            });
         }
 
         #region Configure oracle
@@ -80,13 +94,13 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Configure oracle
         /// </summary>
-        /// <param name="oracleOption">Oracle option</param>
-        public static void Configure(OracleOption oracleOption)
+        /// <param name="oracleOptions">Oracle option</param>
+        public static void Configure(OracleOptions oracleOptions)
         {
-            if (oracleOption != null)
+            if (oracleOptions != null)
             {
-                wrapFieldWithQuotes = oracleOption.WrapWithQuotes;
-                uppercase = oracleOption.Uppercase;
+                wrapFieldWithQuotes = oracleOptions.WrapWithQuotes;
+                uppercase = oracleOptions.Uppercase;
             }
         }
 
@@ -132,7 +146,7 @@ namespace EZNEW.Data.Oracle
         internal static string ParseCriteriaConverter(ICriteriaConverter converter, string objectName, string fieldName)
         {
             var criteriaConverterParse = DataManager.GetCriteriaConverterParser(converter?.Name) ?? Parse;
-            return criteriaConverterParse(new CriteriaConverterParseOption()
+            return criteriaConverterParse(new CriteriaConverterParseOptions()
             {
                 CriteriaConverter = converter,
                 ServerType = DatabaseServerType.Oracle,
@@ -146,7 +160,7 @@ namespace EZNEW.Data.Oracle
         /// </summary>
         /// <param name="option">parse option</param>
         /// <returns></returns>
-        static string Parse(CriteriaConverterParseOption option)
+        static string Parse(CriteriaConverterParseOptions option)
         {
             if (string.IsNullOrWhiteSpace(option?.CriteriaConverter?.Name))
             {
@@ -345,11 +359,11 @@ namespace EZNEW.Data.Oracle
             var formatValue = $"{dataBaseObjectName}.{fieldName}";
             if (!string.IsNullOrWhiteSpace(field.QueryFormat))
             {
-                formatValue = string.Format(field.QueryFormat + " AS \"{1}\"", formatValue, field.PropertyName);
+                formatValue = string.Format(field.QueryFormat + " AS {1}", formatValue, WrapKeyword(field.PropertyName));
             }
             else if (field.FieldName != field.PropertyName && convertField)
             {
-                formatValue = string.Format("{0} AS \"{1}\"", formatValue, field.PropertyName);
+                formatValue = string.Format("{0} AS {1}", formatValue, WrapKeyword(field.PropertyName));
             }
             return formatValue;
         }
@@ -371,9 +385,40 @@ namespace EZNEW.Data.Oracle
             }
             if (wrapFieldWithQuotes)
             {
-                fieldName = $"\"{fieldName}\"";
+                fieldName = $"{WrapKeyword(fieldName)}";
             }
             return fieldName;
+        }
+
+        #endregion
+
+        #region Format table name
+
+        internal static string FormatTableName(string originalTableName)
+        {
+            if (uppercase)
+            {
+                originalTableName = originalTableName.ToUpper();
+            }
+            if (wrapFieldWithQuotes)
+            {
+                originalTableName = $"{WrapKeyword(originalTableName)}";
+            }
+            return originalTableName;
+        }
+
+        #endregion
+
+        #region Wrap keyword
+
+        /// <summary>
+        /// Wrap keyword by the KeywordPrefix and the KeywordSuffix
+        /// </summary>
+        /// <param name="originalValue">Original value</param>
+        /// <returns></returns>
+        internal static string WrapKeyword(string originalValue)
+        {
+            return $"{KeywordPrefix}{originalValue}{KeywordSuffix}";
         }
 
         #endregion
@@ -563,7 +608,7 @@ namespace EZNEW.Data.Oracle
         /// <param name="connection">connection</param>
         /// <param name="executeOption">execute option</param>
         /// <returns></returns>
-        internal static IDbTransaction GetExecuteTransaction(IDbConnection connection, CommandExecuteOption executeOption)
+        internal static IDbTransaction GetExecuteTransaction(IDbConnection connection, CommandExecuteOptions executeOption)
         {
             DataIsolationLevel? dataIsolationLevel = executeOption?.IsolationLevel;
             if (!dataIsolationLevel.HasValue)
