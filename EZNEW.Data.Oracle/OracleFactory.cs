@@ -216,7 +216,7 @@ namespace EZNEW.Data.Oracle
         /// <param name="parameters">Parameters</param>
         static void LogScriptCore(string script, string parameters)
         {
-            LogManager.LogInformation<OracleEngine>(TraceLogSplit +
+            LogManager.LogInformation<OracleProvider>(TraceLogSplit +
             $"{Environment.NewLine}{Environment.NewLine}{script}" +
             $"{Environment.NewLine}{Environment.NewLine}{parameters}" +
             $"{Environment.NewLine}{Environment.NewLine}");

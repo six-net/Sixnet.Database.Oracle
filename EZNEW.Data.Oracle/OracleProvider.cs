@@ -6,55 +6,55 @@ using System.Text;
 using System.Threading.Tasks;
 using EZNEW.Develop.Command.Modify;
 using EZNEW.Fault;
-using EZNEW.Develop.DataAccess;
 using EZNEW.Develop.Entity;
 using EZNEW.Develop.CQuery;
 using EZNEW.Develop.CQuery.Translator;
 using EZNEW.Develop.Command;
 using EZNEW.Dapper;
 using EZNEW.Data.Configuration;
+using Oracle.ManagedDataAccess.Client;
 
 namespace EZNEW.Data.Oracle
 {
     /// <summary>
-    /// Imeplements database engine for oracle
+    /// Imeplements database provider for oracle
     /// </summary>
-    public class OracleEngine : IDatabaseEngine
+    public class OracleProvider : IDatabaseProvider
     {
         #region Execute
 
         /// <summary>
         /// Execute command
         /// </summary>
-        /// <param name="server">server</param>
-        /// <param name="executeOption">execute option</param>
-        /// <param name="commands">commands</param>
-        /// <returns>data numbers</returns>
-        public int Execute(DatabaseServer server, CommandExecuteOptions executeOption, IEnumerable<ICommand> commands)
+        /// <param name="server">Database server</param>
+        /// <param name="executeOptions">Execute options</param>
+        /// <param name="commands">Commands</param>
+        /// <returns>Return the affected data numbers</returns>
+        public int Execute(DatabaseServer server, CommandExecuteOptions executeOptions, IEnumerable<ICommand> commands)
         {
-            return ExecuteAsync(server, executeOption, commands).Result;
+            return ExecuteAsync(server, executeOptions, commands).Result;
         }
 
         /// <summary>
         /// Execute command
         /// </summary>
-        /// <param name="server">server</param>
-        /// <param name="executeOption">execute option</param>
-        /// <param name="commands">commands</param>
-        /// <returns>data numbers</returns>
-        public int Execute(DatabaseServer server, CommandExecuteOptions executeOption, params ICommand[] commands)
+        /// <param name="server">Database server</param>
+        /// <param name="executeOptions">Execute options</param>
+        /// <param name="commands">Commands</param>
+        /// <returns>Return the affected data numbers</returns>
+        public int Execute(DatabaseServer server, CommandExecuteOptions executeOptions, params ICommand[] commands)
         {
-            return ExecuteAsync(server, executeOption, commands).Result;
+            return ExecuteAsync(server, executeOptions, commands).Result;
         }
 
         /// <summary>
         /// Execute command
         /// </summary>
-        /// <param name="server">server</param>
-        /// <param name="executeOption">execute option</param>
-        /// <param name="commands">commands</param>
-        /// <returns>data numbers</returns>
-        public async Task<int> ExecuteAsync(DatabaseServer server, CommandExecuteOptions executeOption, IEnumerable<ICommand> commands)
+        /// <param name="server">Database server</param>
+        /// <param name="executeOptions">Execute options</param>
+        /// <param name="commands">Commands</param>
+        /// <returns>Return the affected data numbers</returns>
+        public async Task<int> ExecuteAsync(DatabaseServer server, CommandExecuteOptions executeOptions, IEnumerable<ICommand> commands)
         {
             #region group execute commands
 
@@ -125,31 +125,31 @@ namespace EZNEW.Data.Oracle
 
             #endregion
 
-            return await ExecuteCommandAsync(server, executeOption, executeCommands, executeOption?.ExecuteByTransaction ?? cmdCount > 1).ConfigureAwait(false);
+            return await ExecuteCommandAsync(server, executeOptions, executeCommands, executeOptions?.ExecuteByTransaction ?? cmdCount > 1).ConfigureAwait(false);
         }
 
         /// <summary>
         /// Execute command
         /// </summary>
-        /// <param name="server">server</param>
-        /// <param name="executeOption">execute option</param>
-        /// <param name="commands">commands</param>
-        /// <returns>data numbers</returns>
-        public async Task<int> ExecuteAsync(DatabaseServer server, CommandExecuteOptions executeOption, params ICommand[] commands)
+        /// <param name="server">Database server</param>
+        /// <param name="executeOptions">Execute options</param>
+        /// <param name="commands">Commands</param>
+        /// <returns>Return the affected data numbers</returns>
+        public async Task<int> ExecuteAsync(DatabaseServer server, CommandExecuteOptions executeOptions, params ICommand[] commands)
         {
             IEnumerable<ICommand> cmdCollection = commands;
-            return await ExecuteAsync(server, executeOption, cmdCollection).ConfigureAwait(false);
+            return await ExecuteAsync(server, executeOptions, cmdCollection).ConfigureAwait(false);
         }
 
         /// <summary>
         /// execute commands
         /// </summary>
         /// <param name="server">db server</param>
-        /// <param name="executeOption">execute option</param>
+        /// <param name="executeOptions">Execute options</param>
         /// <param name="executeCommands">execute commands</param>
         /// <param name="useTransaction">use transaction</param>
         /// <returns></returns>
-        async Task<int> ExecuteCommandAsync(DatabaseServer server, CommandExecuteOptions executeOption, IEnumerable<DatabaseExecuteCommand> executeCommands, bool useTransaction)
+        async Task<int> ExecuteCommandAsync(DatabaseServer server, CommandExecuteOptions executeOptions, IEnumerable<DatabaseExecuteCommand> executeCommands, bool useTransaction)
         {
             int resultValue = 0;
             bool success = true;
@@ -158,13 +158,13 @@ namespace EZNEW.Data.Oracle
                 IDbTransaction transaction = null;
                 if (useTransaction)
                 {
-                    transaction = OracleFactory.GetExecuteTransaction(conn, executeOption);
+                    transaction = OracleFactory.GetExecuteTransaction(conn, executeOptions);
                 }
                 try
                 {
                     foreach (var command in executeCommands)
                     {
-                        var cmdDefinition = new CommandDefinition(command.CommandText, OracleFactory.ConvertCmdParameters(command.Parameters), transaction: transaction, commandType: command.CommandType, cancellationToken: executeOption?.CancellationToken ?? default);
+                        var cmdDefinition = new CommandDefinition(command.CommandText, OracleFactory.ConvertCmdParameters(command.Parameters), transaction: transaction, commandType: command.CommandType, cancellationToken: executeOptions?.CancellationToken ?? default);
                         var executeResultValue = await conn.ExecuteAsync(cmdDefinition).ConfigureAwait(false);
                         success = success && (command.ForceReturnValue ? executeResultValue > 0 : true);
                         resultValue += executeResultValue;
@@ -200,7 +200,7 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Get database execute command
         /// </summary>
-        /// <param name="command">command</param>
+        /// <param name="command">Command</param>
         /// <returns></returns>
         DatabaseExecuteCommand GetExecuteDbCommand(IQueryTranslator queryTranslator, RdbCommand command)
         {
@@ -243,7 +243,7 @@ namespace EZNEW.Data.Oracle
         /// Get insert execute command
         /// </summary>
         /// <param name="translator">translator</param>
-        /// <param name="command">command</param>
+        /// <param name="command">Command</param>
         /// <returns></returns>
         DatabaseExecuteCommand GetInsertExecuteDbCommand(IQueryTranslator translator, RdbCommand command)
         {
@@ -271,7 +271,7 @@ namespace EZNEW.Data.Oracle
         /// Get update execute command
         /// </summary>
         /// <param name="translator">translator</param>
-        /// <param name="command">command</param>
+        /// <param name="command">Command</param>
         /// <returns></returns>
         DatabaseExecuteCommand GetUpdateExecuteDbCommand(IQueryTranslator translator, RdbCommand command)
         {
@@ -350,7 +350,7 @@ namespace EZNEW.Data.Oracle
         /// Get delete execute command
         /// </summary>
         /// <param name="translator">translator</param>
-        /// <param name="command">command</param>
+        /// <param name="command">Command</param>
         /// <returns></returns>
         DatabaseExecuteCommand GetDeleteExecuteDbCommand(IQueryTranslator translator, RdbCommand command)
         {
@@ -399,10 +399,10 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Query datas
         /// </summary>
-        /// <typeparam name="T">data type</typeparam>
-        /// <param name="server">database server</param>
-        /// <param name="command">command</param>
-        /// <returns>return datas</returns>
+        /// <typeparam name="T">Data type</typeparam>
+        /// <param name="server">Database server</param>
+        /// <param name="command">Command</param>
+        /// <returns>Return the datas</returns>
         public IEnumerable<T> Query<T>(DatabaseServer server, ICommand command)
         {
             return QueryAsync<T>(server, command).Result;
@@ -411,10 +411,10 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Query datas
         /// </summary>
-        /// <typeparam name="T">data type</typeparam>
-        /// <param name="server">database server</param>
-        /// <param name="command">command</param>
-        /// <returns>return datas</returns>
+        /// <typeparam name="T">Data type</typeparam>
+        /// <param name="server">Database server</param>
+        /// <param name="command">Command</param>
+        /// <returns>Return the datas</returns>
         public async Task<IEnumerable<T>> QueryAsync<T>(DatabaseServer server, ICommand command)
         {
             if (command.Query == null)
@@ -488,10 +488,10 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Query data paging
         /// </summary>
-        /// <typeparam name="T">data type</typeparam>
-        /// <param name="server">databse server</param>
-        /// <param name="command">command</param>
-        /// <returns></returns>
+        /// <typeparam name="T">Data type</typeparam>
+        /// <param name="server">Database server</param>
+        /// <param name="command">Command</param>
+        /// <returns>Return the datas</returns>
         public IEnumerable<T> QueryPaging<T>(DatabaseServer server, ICommand command)
         {
             return QueryPagingAsync<T>(server, command).Result;
@@ -500,10 +500,10 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Query data paging
         /// </summary>
-        /// <typeparam name="T">data type</typeparam>
-        /// <param name="server">databse server</param>
-        /// <param name="command">command</param>
-        /// <returns></returns>
+        /// <typeparam name="T">Data type</typeparam>
+        /// <param name="server">Database server</param>
+        /// <param name="command">Command</param>
+        /// <returns>Return the datas</returns>
         public async Task<IEnumerable<T>> QueryPagingAsync<T>(DatabaseServer server, ICommand command)
         {
             int beginIndex = 0;
@@ -520,12 +520,12 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Query datas offset the specified numbers
         /// </summary>
-        /// <typeparam name="T">data type</typeparam>
-        /// <param name="server">database server</param>
-        /// <param name="command">command</param>
-        /// <param name="offsetNum">offset num</param>
-        /// <param name="size">query size</param>
-        /// <returns></returns>
+        /// <typeparam name="T">Data type</typeparam>
+        /// <param name="server">Database server</param>
+        /// <param name="command">Command</param>
+        /// <param name="offsetNum">Offset num</param>
+        /// <param name="size">Query size</param>
+        /// <returns>Return the datas</returns>
         public IEnumerable<T> QueryOffset<T>(DatabaseServer server, ICommand command, int offsetNum = 0, int size = int.MaxValue)
         {
             return QueryOffsetAsync<T>(server, command, offsetNum, size).Result;
@@ -534,12 +534,12 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Query datas offset the specified numbers
         /// </summary>
-        /// <typeparam name="T">data type</typeparam>
-        /// <param name="server">database server</param>
-        /// <param name="command">command</param>
-        /// <param name="offsetNum">offset num</param>
-        /// <param name="size">query size</param>
-        /// <returns></returns>
+        /// <typeparam name="T">Data type</typeparam>
+        /// <param name="server">Database server</param>
+        /// <param name="command">Command</param>
+        /// <param name="offsetNum">Offset num</param>
+        /// <param name="size">Query size</param>
+        /// <returns>Return the datas</returns>
         public async Task<IEnumerable<T>> QueryOffsetAsync<T>(DatabaseServer server, ICommand command, int offsetNum = 0, int size = int.MaxValue)
         {
             if (command.Query == null)
@@ -602,22 +602,22 @@ namespace EZNEW.Data.Oracle
         }
 
         /// <summary>
-        /// Determine whether data has existed
+        /// Query whether the data exists or not
         /// </summary>
-        /// <param name="server">server</param>
-        /// <param name="command">command</param>
-        /// <returns>data has existed</returns>
+        /// <param name="server">Database server</param>
+        /// <param name="command">Command</param>
+        /// <returns>Return whether the data exists or not</returns>
         public bool Query(DatabaseServer server, ICommand command)
         {
             return QueryAsync(server, command).Result;
         }
 
         /// <summary>
-        /// Determine whether data has existed
+        /// Query whether the data exists or not
         /// </summary>
-        /// <param name="server">server</param>
-        /// <param name="command">command</param>
-        /// <returns>data has existed</returns>
+        /// <param name="server">Database server</param>
+        /// <param name="command">Command</param>
+        /// <returns>Return whether the data exists or not</returns>
         public async Task<bool> QueryAsync(DatabaseServer server, ICommand command)
         {
             var translator = OracleFactory.GetQueryTranslator(server);
@@ -667,10 +667,10 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Query single value
         /// </summary>
-        /// <typeparam name="T">data type</typeparam>
-        /// <param name="server">database server</param>
-        /// <param name="command">command</param>
-        /// <returns>query data</returns>
+        /// <typeparam name="T">Data type</typeparam>
+        /// <param name="server">Database server</param>
+        /// <param name="command">Command</param>
+        /// <returns>Return the data</returns>
         public T AggregateValue<T>(DatabaseServer server, ICommand command)
         {
             return AggregateValueAsync<T>(server, command).Result;
@@ -679,10 +679,10 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Query single value
         /// </summary>
-        /// <typeparam name="T">data type</typeparam>
-        /// <param name="server">database server</param>
-        /// <param name="command">command</param>
-        /// <returns>query data</returns>
+        /// <typeparam name="T">Data type</typeparam>
+        /// <param name="server">Database server</param>
+        /// <param name="command">Command</param>
+        /// <returns>Return the data</returns>
         public async Task<T> AggregateValueAsync<T>(DatabaseServer server, ICommand command)
         {
             if (command.Query == null)
@@ -783,9 +783,9 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Query data set
         /// </summary>
-        /// <param name="server">database server</param>
+        /// <param name="server">Database server</param>
         /// <param name="command">query command</param>
-        /// <returns>return data set</returns>
+        /// <returns>Return the dataset</returns>
         public async Task<DataSet> QueryMultipleAsync(DatabaseServer server, ICommand command)
         {
             //Trace log
@@ -805,6 +805,120 @@ namespace EZNEW.Data.Oracle
                         dataSet.Tables.Add(dataTable);
                     }
                     return dataSet;
+                }
+            }
+        }
+
+        #endregion
+
+        #region Bulk
+
+        /// <summary>
+        /// Bulk insert datas
+        /// </summary>
+        /// <param name="server">Database server</param>
+        /// <param name="dataTable">Data table</param>
+        /// <param name="bulkInsertOptions">Insert options</param>
+        public void BulkInsert(DatabaseServer server, DataTable dataTable, IBulkInsertOptions bulkInsertOptions = null)
+        {
+            BulkInsertAsync(server, dataTable).Wait();
+        }
+
+        /// <summary>
+        /// Bulk insert datas
+        /// </summary>
+        /// <param name="server">Database server</param>
+        /// <param name="dataTable">Data table</param>
+        /// <param name="bulkInsertOptions">Insert options</param>
+        public async Task BulkInsertAsync(DatabaseServer server, DataTable dataTable, IBulkInsertOptions bulkInsertOptions = null)
+        {
+            if (server == null)
+            {
+                throw new ArgumentNullException(nameof(server));
+            }
+            if (dataTable == null)
+            {
+                throw new ArgumentNullException(nameof(dataTable));
+            }
+            OracleBulkInsertOptions oracleBulkInsertOptions = bulkInsertOptions as OracleBulkInsertOptions;
+            oracleBulkInsertOptions = oracleBulkInsertOptions ?? new OracleBulkInsertOptions();
+            using (OracleBulkCopy oracleBulkCopy = new OracleBulkCopy(server?.ConnectionString))
+            {
+                try
+                {
+                    oracleBulkCopy.DestinationTableName = dataTable.TableName;
+                    if (oracleBulkInsertOptions.UseTransaction)
+                    {
+                        oracleBulkCopy.BulkCopyOptions = OracleBulkCopyOptions.UseInternalTransaction;
+                    }
+                    if (!oracleBulkInsertOptions.ColumnMappings.IsNullOrEmpty())
+                    {
+                        oracleBulkInsertOptions.ColumnMappings.ForEach(c =>
+                        {
+                            if (oracleBulkInsertOptions.Uppercase)
+                            {
+                                c.DestinationColumn = c.DestinationColumn.ToUpper();
+                            }
+                            if (oracleBulkInsertOptions.WrapWithQuotes)
+                            {
+                                c.DestinationColumn = OracleFactory.WrapKeyword(c.DestinationColumn);
+                            }
+                            oracleBulkCopy.ColumnMappings.Add(c);
+                        });
+                    }
+                    else
+                    {
+                        foreach (DataColumn column in dataTable.Columns)
+                        {
+                            string destName = column.ColumnName;
+                            if (oracleBulkInsertOptions.Uppercase)
+                            {
+                                destName = destName.ToUpper();
+                            }
+                            if (oracleBulkInsertOptions.WrapWithQuotes)
+                            {
+                                destName = OracleFactory.WrapKeyword(destName);
+                            }
+                            oracleBulkCopy.ColumnMappings.Add(new OracleBulkCopyColumnMapping()
+                            {
+                                SourceColumn = column.ColumnName,
+                                DestinationColumn = destName
+                            });
+                        }
+                    }
+                    if (oracleBulkInsertOptions.BulkCopyTimeout > 0)
+                    {
+                        oracleBulkCopy.BulkCopyTimeout = oracleBulkInsertOptions.BulkCopyTimeout;
+                    }
+                    if (oracleBulkInsertOptions.BatchSize > 0)
+                    {
+                        oracleBulkCopy.BatchSize = oracleBulkInsertOptions.BatchSize;
+                    }
+                    if (oracleBulkInsertOptions.NotifyAfter > 0)
+                    {
+                        oracleBulkCopy.NotifyAfter = oracleBulkInsertOptions.NotifyAfter;
+                    }
+                    if (oracleBulkInsertOptions.Uppercase)
+                    {
+                        oracleBulkCopy.DestinationTableName = oracleBulkCopy.DestinationTableName.ToUpper();
+                    }
+                    if (oracleBulkInsertOptions.WrapWithQuotes)
+                    {
+                        oracleBulkCopy.DestinationTableName = OracleFactory.WrapKeyword(oracleBulkCopy.DestinationTableName);
+                    }
+                    oracleBulkCopy.WriteToServer(dataTable);
+                    await Task.CompletedTask;
+                }
+                catch (Exception)
+                {
+                    throw;
+                }
+                finally
+                {
+                    if (oracleBulkCopy?.Connection != null && oracleBulkCopy.Connection.State != ConnectionState.Closed)
+                    {
+                        oracleBulkCopy.Connection.Close();
+                    }
                 }
             }
         }
