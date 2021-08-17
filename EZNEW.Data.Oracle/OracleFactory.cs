@@ -4,17 +4,17 @@ using System.Linq;
 using System.Collections.Generic;
 using Oracle.ManagedDataAccess.Client;
 using EZNEW.Data.CriteriaConverter;
-using EZNEW.Develop.CQuery.CriteriaConverter;
-using EZNEW.Develop.CQuery.Translator;
-using EZNEW.Fault;
+using EZNEW.Development.Query.CriteriaConverter;
+using EZNEW.Development.Query.Translator;
+using EZNEW.Exceptions;
 using EZNEW.Logging;
-using EZNEW.Serialize;
-using EZNEW.Develop.CQuery;
-using EZNEW.Develop.Command;
-using EZNEW.Develop.Entity;
+using EZNEW.Serialization;
+using EZNEW.Development.Query;
+using EZNEW.Development.Command;
+using EZNEW.Development.Entity;
 using EZNEW.Dapper;
-using EZNEW.Develop.DataAccess;
-using EZNEW.Develop.Command.Modify;
+using EZNEW.Development.DataAccess;
+using EZNEW.Development.Command.Modification;
 using EZNEW.Diagnostics;
 
 namespace EZNEW.Data.Oracle
@@ -24,15 +24,7 @@ namespace EZNEW.Data.Oracle
     /// </summary>
     public static class OracleFactory
     {
-        /// <summary>
-        /// Enable trace log
-        /// </summary>
-        static bool EnableTraceLog = false;
-
-        /// <summary>
-        /// Trace log split
-        /// </summary>
-        static readonly string TraceLogSplit = $"{new string('=', 10)} Database Command Translation Result {new string('=', 10)}";
+        #region Fields
 
         /// <summary>
         /// Field format key
@@ -57,37 +49,31 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Calculate operators
         /// </summary>
-        static readonly Dictionary<CalculateOperator, string> CalculateOperators = new Dictionary<CalculateOperator, string>(4)
+        static readonly Dictionary<CalculationOperator, string> CalculateOperators = new Dictionary<CalculationOperator, string>(4)
         {
-            [CalculateOperator.Add] = "+",
-            [CalculateOperator.Subtract] = "-",
-            [CalculateOperator.Multiply] = "*",
-            [CalculateOperator.Divide] = "/",
+            [CalculationOperator.Add] = "+",
+            [CalculationOperator.Subtract] = "-",
+            [CalculationOperator.Multiply] = "*",
+            [CalculationOperator.Divide] = "/",
         };
 
         /// <summary>
         /// Aggregate functions
         /// </summary>
-        static readonly Dictionary<OperateType, string> AggregateFunctions = new Dictionary<OperateType, string>(5)
+        static readonly Dictionary<CommandOperationType, string> AggregateFunctions = new Dictionary<CommandOperationType, string>(5)
         {
-            [OperateType.Max] = "MAX",
-            [OperateType.Min] = "MIN",
-            [OperateType.Sum] = "SUM",
-            [OperateType.Avg] = "AVG",
-            [OperateType.Count] = "COUNT",
+            [CommandOperationType.Max] = "MAX",
+            [CommandOperationType.Min] = "MIN",
+            [CommandOperationType.Sum] = "SUM",
+            [CommandOperationType.Avg] = "AVG",
+            [CommandOperationType.Count] = "COUNT",
         };
 
         internal static bool wrapFieldWithQuotes = true;
 
         internal static bool uppercase = true;
 
-        static OracleFactory()
-        {
-            EnableTraceLog = SwitchManager.ShouldTraceFramework(sw =>
-            {
-                EnableTraceLog = SwitchManager.ShouldTraceFramework();
-            });
-        }
+        #endregion
 
         #region Configure oracle
 
@@ -182,44 +168,25 @@ namespace EZNEW.Data.Oracle
 
         #endregion
 
-        #region Command translation result log
+        #region Framework log
 
         /// <summary>
         /// Log execute command
         /// </summary>
-        /// <param name="executeCommand">Execte command</param>
-        internal static void LogExecuteCommand(DatabaseExecuteCommand executeCommand)
+        /// <param name="command">Execte command</param>
+        internal static void LogExecutionCommand(DatabaseExecutionCommand command)
         {
-            if (EnableTraceLog)
-            {
-                LogScriptCore(executeCommand.CommandText, JsonSerializeHelper.ObjectToJson(executeCommand.Parameters));
-            }
+            FrameworkLogManager.LogDatabaseExecutionCommand(DatabaseServerType.Oracle, command);
         }
 
         /// <summary>
         /// Log script
         /// </summary>
         /// <param name="script">Script</param>
-        /// <param name="parameters">Parameters</param>
-        internal static void LogScript(string script, object parameters)
+        /// <param name="parameter">Parameter</param>
+        internal static void LogScript(string script, object parameter)
         {
-            if (EnableTraceLog)
-            {
-                LogScriptCore(script, JsonSerializeHelper.ObjectToJson(parameters));
-            }
-        }
-
-        /// <summary>
-        /// Log script
-        /// </summary>
-        /// <param name="script">Script</param>
-        /// <param name="parameters">Parameters</param>
-        static void LogScriptCore(string script, string parameters)
-        {
-            LogManager.LogInformation<OracleProvider>(TraceLogSplit +
-            $"{Environment.NewLine}{Environment.NewLine}{script}" +
-            $"{Environment.NewLine}{Environment.NewLine}{parameters}" +
-            $"{Environment.NewLine}{Environment.NewLine}");
+            FrameworkLogManager.LogDatabaseScript(DatabaseServerType.Oracle, script, parameter);
         }
 
         #endregion
@@ -231,7 +198,7 @@ namespace EZNEW.Data.Oracle
         /// </summary>
         /// <param name="command">command</param>
         /// <returns></returns>
-        internal static CommandType GetCommandType(RdbCommand command)
+        internal static CommandType GetCommandType(DefaultCommand command)
         {
             return command.CommandType == CommandTextType.Procedure ? CommandType.StoredProcedure : CommandType.Text;
         }
@@ -245,7 +212,7 @@ namespace EZNEW.Data.Oracle
         /// </summary>
         /// <param name="calculate">calculate operator</param>
         /// <returns></returns>
-        internal static string GetCalculateChar(CalculateOperator calculate)
+        internal static string GetCalculateChar(CalculationOperator calculate)
         {
             CalculateOperators.TryGetValue(calculate, out var opearterChar);
             return opearterChar;
@@ -260,7 +227,7 @@ namespace EZNEW.Data.Oracle
         /// </summary>
         /// <param name="funcType">function type</param>
         /// <returns></returns>
-        internal static string GetAggregateFunctionName(OperateType funcType)
+        internal static string GetAggregateFunctionName(CommandOperationType funcType)
         {
             AggregateFunctions.TryGetValue(funcType, out var funcName);
             return funcName;
@@ -275,9 +242,9 @@ namespace EZNEW.Data.Oracle
         /// </summary>
         /// <param name="operateType">operate type</param>
         /// <returns></returns>
-        internal static bool AggregateOperateMustNeedField(OperateType operateType)
+        internal static bool AggregateOperateMustNeedField(CommandOperationType operateType)
         {
-            return operateType != OperateType.Count;
+            return operateType != CommandOperationType.Count;
         }
 
         #endregion
@@ -506,7 +473,7 @@ namespace EZNEW.Data.Oracle
             {
                 commandParameters.Add(objectParametersDict);
             }
-            else if (originParameters is IEnumerable<KeyValuePair<string, IModifyValue>> modifyParametersDict)
+            else if (originParameters is IEnumerable<KeyValuePair<string, IModificationValue>> modifyParametersDict)
             {
                 commandParameters.Add(modifyParametersDict);
             }
@@ -536,13 +503,7 @@ namespace EZNEW.Data.Oracle
             DynamicParameters dynamicParameters = new DynamicParameters();
             foreach (var item in cmdParameters.Parameters)
             {
-                var parameter = item.Value;
-                if ((parameter.DbType.HasValue && parameter.DbType.Value == DbType.Boolean) || (parameter.Value != null && parameter.Value is bool))
-                {
-                    parameter.DbType = DbType.Int32;
-                    bool.TryParse(parameter.Value?.ToString(), out var boolVal);
-                    parameter.Value = boolVal ? 1 : 0;
-                }
+                var parameter = DataManager.HandleParameter(DatabaseServerType.Oracle, item.Value);
                 dynamicParameters.Add(parameter.Name, parameter.Value
                                     , parameter.DbType, parameter.ParameterDirection
                                     , parameter.Size, parameter.Precision
@@ -608,7 +569,7 @@ namespace EZNEW.Data.Oracle
         /// <param name="connection">connection</param>
         /// <param name="executeOption">execute option</param>
         /// <returns></returns>
-        internal static IDbTransaction GetExecuteTransaction(IDbConnection connection, CommandExecuteOptions executeOption)
+        internal static IDbTransaction GetExecuteTransaction(IDbConnection connection, CommandExecutionOptions executeOption)
         {
             DataIsolationLevel? dataIsolationLevel = executeOption?.IsolationLevel;
             if (!dataIsolationLevel.HasValue)
