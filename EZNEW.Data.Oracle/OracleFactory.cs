@@ -12,7 +12,7 @@ using EZNEW.Serialization;
 using EZNEW.Development.Query;
 using EZNEW.Development.Command;
 using EZNEW.Development.Entity;
-using EZNEW.Dapper;
+using Dapper;
 using EZNEW.Development.DataAccess;
 using EZNEW.Development.Command.Modification;
 using EZNEW.Diagnostics;
@@ -68,10 +68,7 @@ namespace EZNEW.Data.Oracle
             [CommandOperationType.Avg] = "AVG",
             [CommandOperationType.Count] = "COUNT",
         };
-
-        internal static bool wrapFieldWithQuotes = true;
-
-        internal static bool uppercase = true;
+        static readonly OracleOptions OracleOptions = new OracleOptions();
 
         #endregion
 
@@ -80,14 +77,10 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Configure oracle
         /// </summary>
-        /// <param name="oracleOptions">Oracle option</param>
-        public static void Configure(OracleOptions oracleOptions)
+        /// <param name="configureDelegate">Configure delegate</param>
+        public static void Configure(Action<OracleOptions> configureDelegate)
         {
-            if (oracleOptions != null)
-            {
-                wrapFieldWithQuotes = oracleOptions.WrapWithQuotes;
-                uppercase = oracleOptions.Uppercase;
-            }
+            configureDelegate?.Invoke(OracleOptions);
         }
 
         #endregion
@@ -346,11 +339,11 @@ namespace EZNEW.Data.Oracle
             {
                 return string.Empty;
             }
-            if (uppercase)
+            if (OracleOptions.Uppercase)
             {
                 fieldName = fieldName.ToUpper();
             }
-            if (wrapFieldWithQuotes)
+            if (OracleOptions.WrapWithQuotes)
             {
                 fieldName = $"{WrapKeyword(fieldName)}";
             }
@@ -363,11 +356,11 @@ namespace EZNEW.Data.Oracle
 
         internal static string FormatTableName(string originalTableName)
         {
-            if (uppercase)
+            if (OracleOptions.Uppercase)
             {
                 originalTableName = originalTableName.ToUpper();
             }
-            if (wrapFieldWithQuotes)
+            if (OracleOptions.WrapWithQuotes)
             {
                 originalTableName = $"{WrapKeyword(originalTableName)}";
             }

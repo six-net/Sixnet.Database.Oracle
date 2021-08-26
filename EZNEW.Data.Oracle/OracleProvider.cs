@@ -10,7 +10,7 @@ using EZNEW.Development.Entity;
 using EZNEW.Development.Query;
 using EZNEW.Development.Query.Translator;
 using EZNEW.Development.Command;
-using EZNEW.Dapper;
+using Dapper;
 using EZNEW.Data.Configuration;
 using Oracle.ManagedDataAccess.Client;
 
@@ -60,7 +60,7 @@ namespace EZNEW.Data.Oracle
 
             IQueryTranslator translator = OracleFactory.GetQueryTranslator(server);
             List<DatabaseExecutionCommand> executeCommands = new List<DatabaseExecutionCommand>();
-            var batchExecuteConfig = DataManager.GetBatchExecuteConfiguration(server.ServerType) ?? BatchExecuteConfiguration.Default;
+            var batchExecuteConfig = DataManager.GetBatchExecutionConfiguration(server.ServerType) ?? BatchExecutionConfiguration.Default;
             var groupStatementsCount = batchExecuteConfig.GroupStatementsCount;
             groupStatementsCount = groupStatementsCount < 0 ? 1 : groupStatementsCount;
             var groupParameterCount = batchExecuteConfig.GroupParametersCount;
@@ -571,14 +571,14 @@ namespace EZNEW.Data.Oracle
                     string conditionString = string.IsNullOrWhiteSpace(tranResult.ConditionString) ? string.Empty : $" WHERE {tranResult.ConditionString}";
                     string offsetConditionString = $"WHERE EZNEW_ROWNUMBER BETWEEN {beginRow} AND {beginRow + size}";
                     string orderString = string.IsNullOrWhiteSpace(tranResult.OrderString) ? $" ORDER BY {translator.ObjectPetName}.{defaultFieldName} DESC" : $" ORDER BY {tranResult.OrderString}";
-                    string totalCountAndRowNumber = $"SELECT COUNT({translator.ObjectPetName}.{defaultFieldName}) OVER() AS QueryDataTotalCount,ROW_NUMBER() OVER({orderString}) AS EZNEW_ROWNUMBER";
+                    string totalCountAndRowNumber = $"SELECT COUNT({translator.ObjectPetName}.{defaultFieldName}) OVER() AS {DataManager.PagingTotalCountFieldName},ROW_NUMBER() OVER({orderString}) AS EZNEW_ROWNUMBER";
                     var queryFields = OracleFactory.GetQueryFields(command.Query, command.EntityType, true);
                     var innerFormatedField = string.Join(",", OracleFactory.FormatQueryFields(translator.ObjectPetName, queryFields, false));
                     var outputFormatedField = string.Join(",", OracleFactory.FormatQueryFields(translator.ObjectPetName, queryFields, true));
                     objectName = OracleFactory.FormatTableName(objectName);
                     cmdText = string.IsNullOrWhiteSpace(tranResult.CombineScript)
-                        ? $"{tranResult.PreScript}SELECT {outputFormatedField} FROM ({totalCountAndRowNumber},{innerFormatedField} FROM {objectName} {translator.ObjectPetName} {joinScript} {conditionString}) {translator.ObjectPetName} {offsetConditionString}"
-                        : $"{tranResult.PreScript}SELECT {outputFormatedField} FROM ({totalCountAndRowNumber},{innerFormatedField} FROM (SELECT {innerFormatedField} FROM {objectName} {translator.ObjectPetName} {joinScript} {conditionString} {tranResult.CombineScript}) {translator.ObjectPetName}) {translator.ObjectPetName} {offsetConditionString}";
+                        ? $"{tranResult.PreScript}SELECT {outputFormatedField},{DataManager.PagingTotalCountFieldName} FROM ({totalCountAndRowNumber},{innerFormatedField} FROM {objectName} {translator.ObjectPetName} {joinScript} {conditionString}) {translator.ObjectPetName} {offsetConditionString}"
+                        : $"{tranResult.PreScript}SELECT {outputFormatedField},{DataManager.PagingTotalCountFieldName} FROM ({totalCountAndRowNumber},{innerFormatedField} FROM (SELECT {innerFormatedField} FROM {objectName} {translator.ObjectPetName} {joinScript} {conditionString} {tranResult.CombineScript}) {translator.ObjectPetName}) {translator.ObjectPetName} {offsetConditionString}";
                     break;
             }
 
