@@ -324,7 +324,19 @@ namespace EZNEW.Data.Oracle
                 }
                 updateSetArray.Add($"{translator.ObjectPetName}.{fieldName}={newValueExpression}");
             }
-            string cmdText = $"{preScript}UPDATE {OracleFactory.FormatTableName(objectName)} {translator.ObjectPetName} {joinScript} SET {string.Join(",", updateSetArray)} {conditionString}";
+
+            string formatObjectName = OracleFactory.FormatTableName(objectName);
+            string cmdText;
+            if (string.IsNullOrWhiteSpace(joinScript))
+            {
+                cmdText = $"{preScript}UPDATE {formatObjectName} {translator.ObjectPetName} SET {string.Join(",", updateSetArray)} {conditionString}";
+            }
+            else
+            {
+                string updateTableShortName = "UTB";
+                var primaryKeyFormatedResult = FormatWrapJoinPrimaryKeys(command.EntityType, translator.ObjectPetName, translator.ObjectPetName, updateTableShortName);
+                cmdText = $"{preScript}MERGE INTO {formatObjectName} {translator.ObjectPetName} USING (SELECT {string.Join(",", primaryKeyFormatedResult.Item1)} FROM {formatObjectName} {translator.ObjectPetName} {joinScript} {conditionString}) {updateTableShortName} ON ({string.Join(" AND ", primaryKeyFormatedResult.Item2)}) WHEN MATCHED THEN UPDATE SET {string.Join(",", updateSetArray)}";
+            }
             translator.ParameterSequence = parameterSequence;
 
             #endregion
@@ -370,7 +382,22 @@ namespace EZNEW.Data.Oracle
             #region script
 
             string objectName = DataManager.GetEntityObjectName(DatabaseServerType.Oracle, command.EntityType, command.ObjectName);
-            string cmdText = $"{preScript}DELETE {OracleFactory.FormatTableName(objectName)} {translator.ObjectPetName} {joinScript} {conditionString}";
+            string cmdText = string.Empty;
+            string formatedObjName = OracleFactory.FormatTableName(objectName);
+            if (string.IsNullOrWhiteSpace(joinScript))
+            {
+                cmdText = $"{preScript}DELETE {formatedObjName} {translator.ObjectPetName} {conditionString}";
+            }
+            else
+            {
+                var primaryKeyFields = DataManager.GetFields(DatabaseServerType.Oracle, command.EntityType, EntityManager.GetPrimaryKeys(command.EntityType)).ToList();
+                if (primaryKeyFields.IsNullOrEmpty())
+                {
+                    throw new EZNEWException($"{command.EntityType?.FullName} not set primary key");
+                }
+                string deleteTableShortName = "DTB";
+                cmdText = $"{preScript}DELETE FROM {formatedObjName} {deleteTableShortName} WHERE ({string.Join(",", primaryKeyFields.Select(pk => deleteTableShortName + "." + OracleFactory.FormatFieldName(pk.FieldName)))}) IN (SELECT {string.Join(",", primaryKeyFields.Select(pk => translator.ObjectPetName + "." + OracleFactory.FormatFieldName(pk.FieldName)))} FROM {formatedObjName} {translator.ObjectPetName} {joinScript} {conditionString})";
+            }
 
             #endregion
 
@@ -390,6 +417,31 @@ namespace EZNEW.Data.Oracle
                 Parameters = parameters,
                 HasPreScript = !string.IsNullOrWhiteSpace(preScript)
             };
+        }
+
+        Tuple<IEnumerable<string>, IEnumerable<string>> FormatWrapJoinPrimaryKeys(Type entityType, string translatorObjName, string sourceObjName, string targetObjName)
+        {
+            var primaryKeyFields = DataManager.GetFields(DatabaseServerType.Oracle, entityType, EntityManager.GetPrimaryKeys(entityType));
+            if (primaryKeyFields.IsNullOrEmpty())
+            {
+                throw new EZNEWException($"{entityType?.FullName} not set primary key");
+            }
+            return FormatWrapJoinFields(primaryKeyFields, translatorObjName, sourceObjName, targetObjName);
+        }
+
+        Tuple<IEnumerable<string>, IEnumerable<string>> FormatWrapJoinFields(IEnumerable<EntityField> fields, string translatorObjName, string sourceObjName, string targetObjName)
+        {
+            var joinItems = fields.Select(field =>
+            {
+                string fieldName = OracleFactory.FormatFieldName(field.FieldName);
+                return $"{sourceObjName}.{fieldName} = {targetObjName}.{fieldName}";
+            });
+            var queryItems = fields.Select(field =>
+            {
+                string fieldName = OracleFactory.FormatFieldName(field.FieldName);
+                return $"{translatorObjName}.{fieldName}";
+            });
+            return new Tuple<IEnumerable<string>, IEnumerable<string>>(queryItems, joinItems);
         }
 
         #endregion
