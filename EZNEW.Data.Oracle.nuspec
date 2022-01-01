@@ -15,7 +15,7 @@
     <tags>.NET,EZNEW,Oracle</tags>
     <dependencies>
       <group targetFramework=".NETStandard2.0">
-        <dependency id="Oracle.ManagedDataAccess.Core" version="2.19.101" />
+        <dependency id="Oracle.ManagedDataAccess.Core" version="3.21.41" />
         <dependency id="EZNEW" version="4.0.0" />
       </group>
     </dependencies>
