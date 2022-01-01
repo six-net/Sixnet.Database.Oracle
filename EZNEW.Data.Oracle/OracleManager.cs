@@ -2,39 +2,41 @@
 using System.Data;
 using System.Linq;
 using System.Collections.Generic;
+using Dapper;
 using Oracle.ManagedDataAccess.Client;
-using EZNEW.Data.CriteriaConverter;
-using EZNEW.Development.Query.CriteriaConverter;
-using EZNEW.Development.Query.Translator;
-using EZNEW.Exceptions;
+using EZNEW.Development.Query.Translation;
 using EZNEW.Logging;
-using EZNEW.Serialization;
 using EZNEW.Development.Query;
 using EZNEW.Development.Command;
 using EZNEW.Development.Entity;
-using Dapper;
 using EZNEW.Development.DataAccess;
-using EZNEW.Development.Command.Modification;
-using EZNEW.Diagnostics;
+using EZNEW.Data.ParameterHandler;
+using EZNEW.Data.Conversion;
+using EZNEW.Exceptions;
 
 namespace EZNEW.Data.Oracle
 {
     /// <summary>
-    /// Database server factory
+    /// Defines oracle manager
     /// </summary>
-    public static class OracleFactory
+    public static class OracleManager
     {
         #region Fields
 
         /// <summary>
+        /// Gets current database server type
+        /// </summary>
+        internal const DatabaseServerType CurrentDatabaseServerType = DatabaseServerType.Oracle;
+
+        /// <summary>
         /// Field format key
         /// </summary>
-        internal static readonly string fieldFormatKey = ((int)DatabaseServerType.Oracle).ToString();
+        internal static readonly string FieldFormatKey = ((int)CurrentDatabaseServerType).ToString();
 
         /// <summary>
         /// Parameter prefix
         /// </summary>
-        internal const string parameterPrefix = ":";
+        internal const string ParameterPrefix = ":";
 
         /// <summary>
         /// Key word prefix
@@ -47,9 +49,9 @@ namespace EZNEW.Data.Oracle
         internal const string KeywordSuffix = "\"";
 
         /// <summary>
-        /// Calculate operators
+        /// Calculation operators
         /// </summary>
-        static readonly Dictionary<CalculationOperator, string> CalculateOperators = new Dictionary<CalculationOperator, string>(4)
+        static readonly Dictionary<CalculationOperator, string> CalculationOperators = new Dictionary<CalculationOperator, string>(4)
         {
             [CalculationOperator.Add] = "+",
             [CalculationOperator.Subtract] = "-",
@@ -58,9 +60,9 @@ namespace EZNEW.Data.Oracle
         };
 
         /// <summary>
-        /// Aggregate functions
+        /// Aggregation functions
         /// </summary>
-        static readonly Dictionary<CommandOperationType, string> AggregateFunctions = new Dictionary<CommandOperationType, string>(5)
+        static readonly Dictionary<CommandOperationType, string> AggregationFunctions = new Dictionary<CommandOperationType, string>(5)
         {
             [CommandOperationType.Max] = "MAX",
             [CommandOperationType.Min] = "MIN",
@@ -68,7 +70,21 @@ namespace EZNEW.Data.Oracle
             [CommandOperationType.Avg] = "AVG",
             [CommandOperationType.Count] = "COUNT",
         };
+
+        /// <summary>
+        /// Oracle options
+        /// </summary>
         static readonly OracleOptions OracleOptions = new OracleOptions();
+
+        /// <summary>
+        /// Default feild converter
+        /// </summary>
+        static readonly OracleDefaultFieldConverter DefaultFieldConverter = new OracleDefaultFieldConverter();
+
+        /// <summary>
+        /// Database provider type
+        /// </summary>
+        static readonly Type ProviderType = typeof(OracleProvider);
 
         #endregion
 
@@ -81,6 +97,14 @@ namespace EZNEW.Data.Oracle
         public static void Configure(Action<OracleOptions> configureDelegate)
         {
             configureDelegate?.Invoke(OracleOptions);
+            if (OracleOptions.FormattingGuid)
+            {
+                DataManager.AddParameterHandler(CurrentDatabaseServerType, DbType.Guid, new GuidFormattingParameterHandler());
+            }
+            else
+            {
+                DataManager.RemoveParameterHandler(CurrentDatabaseServerType, DbType.Guid);
+            }
         }
 
         #endregion
@@ -88,10 +112,10 @@ namespace EZNEW.Data.Oracle
         #region Get database connection
 
         /// <summary>
-        /// Get oracle database connection
+        /// Get database connection
         /// </summary>
-        /// <param name="server">database server</param>
-        /// <returns>return database connection</returns>
+        /// <param name="server">Database server</param>
+        /// <returns>Return database connection</returns>
         internal static IDbConnection GetConnection(DatabaseServer server)
         {
             return DataManager.GetDatabaseConnection(server) ?? new OracleConnection(server.ConnectionString);
@@ -104,59 +128,47 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Get query translator
         /// </summary>
-        /// <param name="server">database server</param>
-        /// <returns></returns>
-        internal static IQueryTranslator GetQueryTranslator(DatabaseServer server)
+        /// <param name="dataAccessContext">Data access context</param>
+        /// <returns>Return query translator</returns>
+        internal static IQueryTranslator GetQueryTranslator(DataAccessContext dataAccessContext)
         {
-            return DataManager.GetQueryTranslator(server.ServerType) ?? new OracleQueryTranslator();
+            if (dataAccessContext?.Server == null)
+            {
+                throw new ArgumentNullException($"{nameof(DataAccessContext.Server)}");
+            }
+            var translator = DataManager.GetQueryTranslator(dataAccessContext.Server.ServerType) ?? new OracleQueryTranslator();
+            translator.DataAccessContext = dataAccessContext;
+            return translator;
         }
 
         #endregion
 
-        #region Criteria converter
+        #region Field conversion
 
         /// <summary>
-        /// Parse criteria converter
+        /// Convert field
         /// </summary>
-        /// <param name="converter">converter</param>
-        /// <param name="objectName">object name</param>
-        /// <param name="fieldName">field name</param>
-        /// <returns></returns>
-        internal static string ParseCriteriaConverter(ICriteriaConverter converter, string objectName, string fieldName)
+        /// <param name="server">Database server</param>
+        /// <param name="conversionOptions">Field conversion options</param>
+        /// <param name="objectName">Object name</param>
+        /// <param name="fieldName">Field name</param>
+        /// <returns>Return field conversion result</returns>
+        internal static FieldConversionResult ConvertField(DatabaseServer server, FieldConversionOptions conversionOptions, string objectName, string fieldName)
         {
-            var criteriaConverterParse = DataManager.GetCriteriaConverterParser(converter?.Name) ?? Parse;
-            return criteriaConverterParse(new CriteriaConverterParseOptions()
+            if (string.IsNullOrWhiteSpace(conversionOptions?.ConversionName))
             {
-                CriteriaConverter = converter,
-                ServerType = DatabaseServerType.Oracle,
+                return null;
+            }
+
+            IFieldConverter fieldConverter = DataManager.GetFieldConverter(conversionOptions.ConversionName) ?? DefaultFieldConverter;
+            return fieldConverter.Convert(new FieldConversionContext()
+            {
+                ConversionName = conversionOptions.ConversionName,
+                Parameter = conversionOptions.Parameter,
+                FieldName = fieldName,
                 ObjectName = objectName,
-                FieldName = fieldName
+                Server = server
             });
-        }
-
-        /// <summary>
-        /// parse
-        /// </summary>
-        /// <param name="option">parse option</param>
-        /// <returns></returns>
-        static string Parse(CriteriaConverterParseOptions option)
-        {
-            if (string.IsNullOrWhiteSpace(option?.CriteriaConverter?.Name))
-            {
-                throw new EZNEWException("criteria convert config name is null or empty");
-            }
-            string format = null;
-            switch (option.CriteriaConverter.Name)
-            {
-                case CriteriaConverterNames.StringLength:
-                    format = $"LENGTH({option.ObjectName}.{FormatFieldName(option.FieldName)})";
-                    break;
-            }
-            if (string.IsNullOrWhiteSpace(format))
-            {
-                throw new EZNEWException($"cann't resolve criteria convert:{option.CriteriaConverter.Name} for Oracle");
-            }
-            return format;
         }
 
         #endregion
@@ -164,12 +176,12 @@ namespace EZNEW.Data.Oracle
         #region Framework log
 
         /// <summary>
-        /// Log execute command
+        /// Log execution command
         /// </summary>
-        /// <param name="command">Execte command</param>
+        /// <param name="command">Exection command</param>
         internal static void LogExecutionCommand(DatabaseExecutionCommand command)
         {
-            FrameworkLogManager.LogDatabaseExecutionCommand(DatabaseServerType.Oracle, command);
+            FrameworkLogManager.LogDatabaseExecutionCommand(ProviderType,CurrentDatabaseServerType, command);
         }
 
         /// <summary>
@@ -179,7 +191,7 @@ namespace EZNEW.Data.Oracle
         /// <param name="parameter">Parameter</param>
         internal static void LogScript(string script, object parameter)
         {
-            FrameworkLogManager.LogDatabaseScript(DatabaseServerType.Oracle, script, parameter);
+            FrameworkLogManager.LogDatabaseScript(ProviderType,CurrentDatabaseServerType, script, parameter);
         }
 
         #endregion
@@ -189,77 +201,77 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Get command type
         /// </summary>
-        /// <param name="command">command</param>
-        /// <returns></returns>
+        /// <param name="command">Command</param>
+        /// <returns>Return command type</returns>
         internal static CommandType GetCommandType(DefaultCommand command)
         {
-            return command.CommandType == CommandTextType.Procedure ? CommandType.StoredProcedure : CommandType.Text;
+            return command.TextType == CommandTextType.Procedure ? CommandType.StoredProcedure : CommandType.Text;
         }
 
         #endregion
 
-        #region Get calculate sign
+        #region Get system calculation operator
 
         /// <summary>
-        /// Get calculate sign
+        /// Get system calculation operator
         /// </summary>
-        /// <param name="calculate">calculate operator</param>
-        /// <returns></returns>
-        internal static string GetCalculateChar(CalculationOperator calculate)
+        /// <param name="calculationOperator">Calculation operator</param>
+        /// <returns>Return system calculation operator</returns>
+        internal static string GetSystemCalculationOperator(CalculationOperator calculationOperator)
         {
-            CalculateOperators.TryGetValue(calculate, out var opearterChar);
-            return opearterChar;
+            CalculationOperators.TryGetValue(calculationOperator, out var systemCalculationOperator);
+            return systemCalculationOperator;
         }
 
         #endregion
 
-        #region Get aggregate function name
+        #region Get aggregation function name
 
         /// <summary>
-        /// Get aggregate function name
+        /// Get aggregation function name
         /// </summary>
-        /// <param name="funcType">function type</param>
-        /// <returns></returns>
-        internal static string GetAggregateFunctionName(CommandOperationType funcType)
+        /// <param name="commandOperationType">Command operation type</param>
+        /// <returns>Return aggregation function name</returns>
+        internal static string GetAggregationFunctionName(CommandOperationType commandOperationType)
         {
-            AggregateFunctions.TryGetValue(funcType, out var funcName);
+            AggregationFunctions.TryGetValue(commandOperationType, out var funcName);
             return funcName;
         }
 
         #endregion
 
-        #region Aggregate operate must need field
+        #region Check aggregation operation whether must need field
 
         /// <summary>
-        /// Aggregate operate must need field
+        /// Check aggregation operation whether must need field
         /// </summary>
-        /// <param name="operateType">operate type</param>
-        /// <returns></returns>
-        internal static bool AggregateOperateMustNeedField(CommandOperationType operateType)
+        /// <param name="operationType">Operation type</param>
+        /// <returns>Whether must need field</returns>
+        internal static bool CheckAggregationOperationMustNeedField(CommandOperationType operationType)
         {
-            return operateType != CommandOperationType.Count;
+            return operationType != CommandOperationType.Count;
         }
 
         #endregion
 
-        #region Format insert fields
+        #region Format insertion fields
 
         /// <summary>
-        /// Format insert fields
+        /// Format insertion fields
         /// </summary>
-        /// <param name="fields">fields</param>
-        /// <param name="parameters">parameters</param>
-        /// <param name="parameterSequence">parameter sequence</param>
-        /// <returns>first:fields,second:parameter fields,third:parameters</returns>
-        internal static Tuple<List<string>, List<string>, CommandParameters> FormatInsertFields(int fieldCount, IEnumerable<EntityField> fields, object parameters, int parameterSequence)
+        /// <param name="entityType">Entity type</param>
+        /// <param name="fields">Fields</param>
+        /// <param name="parameters">Parameters</param>
+        /// <param name="parameterSequence">Parameter sequence</param>
+        /// <returns>First:fields,Second:parameter fields,Third:parameters</returns>
+        internal static Tuple<List<string>, List<string>, CommandParameters> FormatInsertionFields(Type entityType, int fieldCount, IEnumerable<EntityField> fields, CommandParameters parameters, int parameterSequence)
         {
             if (fields.IsNullOrEmpty())
             {
-                return null;
+                throw new EZNEWException($"Entity type {entityType?.Name} not set fields for insertion.");
             }
             List<string> formatFields = new List<string>(fieldCount);
             List<string> parameterFields = new List<string>(fieldCount);
-            CommandParameters cmdParameters = ParseParameters(parameters);
             foreach (var field in fields)
             {
                 formatFields.Add(FormatFieldName(field.FieldName));
@@ -267,12 +279,12 @@ namespace EZNEW.Data.Oracle
                 //parameter name
                 parameterSequence++;
                 string parameterName = field.PropertyName + parameterSequence;
-                parameterFields.Add($"{parameterPrefix}{parameterName}");
+                parameterFields.Add($"{ParameterPrefix}{parameterName}");
 
                 //parameter value
-                cmdParameters?.Rename(field.PropertyName, parameterName);
+                parameters?.Rename(field.PropertyName, parameterName);
             }
-            return new Tuple<List<string>, List<string>, CommandParameters>(formatFields, parameterFields, cmdParameters);
+            return new Tuple<List<string>, List<string>, CommandParameters>(formatFields, parameterFields, parameters);
         }
 
         #endregion
@@ -280,23 +292,34 @@ namespace EZNEW.Data.Oracle
         #region Format fields
 
         /// <summary>
-        /// Format fields
+        /// Format query fields
         /// </summary>
-        /// <param name="fields">fields</param>
+        /// <param name="objectPetName">Object pet name</param>
+        /// <param name="query">Query</param>
+        /// <param name="entityType">Entity type</param>
+        /// <param name="forceNecessaryFields">Whether force include necessary fields</param>
+        /// <param name="conversionFieldName">Indicates whether conversion field name</param>
         /// <returns></returns>
-        internal static IEnumerable<string> FormatQueryFields(string databasePetName, IQuery query, Type entityType, bool forceMustFields, bool convertField)
+        internal static IEnumerable<string> FormatQueryFields(string objectPetName, IQuery query, Type entityType, bool forceNecessaryFields, bool conversionFieldName)
         {
             if (query == null || entityType == null)
             {
                 return Array.Empty<string>();
             }
-            var queryFields = GetQueryFields(query, entityType, forceMustFields);
-            return queryFields?.Select(field => FormatField(databasePetName, field, convertField)) ?? Array.Empty<string>();
+            var queryFields = GetQueryFields(query, entityType, forceNecessaryFields);
+            return queryFields?.Select(field => FormatField(objectPetName, field, conversionFieldName)) ?? Array.Empty<string>();
         }
 
-        internal static IEnumerable<string> FormatQueryFields(string dataBaseObjectName, IEnumerable<EntityField> fields, bool convertField)
+        /// <summary>
+        /// Format query fields
+        /// </summary>
+        /// <param name="objectPetName">Object pet name</param>
+        /// <param name="fields">Fields</param>
+        /// <param name="conversionFieldName">Whether convert field</param>
+        /// <returns></returns>
+        internal static IEnumerable<string> FormatQueryFields(string objectPetName, IEnumerable<EntityField> fields, bool conversionFieldName)
         {
-            return fields?.Select(field => FormatField(dataBaseObjectName, field, convertField)) ?? Array.Empty<string>();
+            return fields?.Select(field => FormatField(objectPetName, field, conversionFieldName)) ?? Array.Empty<string>();
         }
 
         #endregion
@@ -306,22 +329,23 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Format field
         /// </summary>
-        /// <param name="dataBaseObjectName">database object name</param>
-        /// <param name="field">field</param>
+        /// <param name="objectPetName">Object pet name</param>
+        /// <param name="field">Field</param>
+        /// <param name="conversionFieldName">Whether conversion field name</param>
         /// <returns></returns>
-        internal static string FormatField(string dataBaseObjectName, EntityField field, bool convertField)
+        internal static string FormatField(string objectPetName, EntityField field, bool conversionFieldName)
         {
             if (field == null)
             {
                 return string.Empty;
             }
             string fieldName = FormatFieldName(field.FieldName);
-            var formatValue = $"{dataBaseObjectName}.{fieldName}";
+            var formatValue = $"{objectPetName}.{fieldName}";
             if (!string.IsNullOrWhiteSpace(field.QueryFormat))
             {
                 formatValue = string.Format(field.QueryFormat + " AS {1}", formatValue, WrapKeyword(field.PropertyName));
             }
-            else if (field.FieldName != field.PropertyName && convertField)
+            else if (field.FieldName != field.PropertyName && conversionFieldName)
             {
                 formatValue = string.Format("{0} AS {1}", formatValue, WrapKeyword(field.PropertyName));
             }
@@ -385,9 +409,16 @@ namespace EZNEW.Data.Oracle
 
         #region Get fields
 
-        internal static IEnumerable<EntityField> GetQueryFields(IQuery query, Type entityType, bool forceMustFields)
+        /// <summary>
+        /// Get query fields
+        /// </summary>
+        /// <param name="query">Query</param>
+        /// <param name="entityType">Entity type</param>
+        /// <param name="forceNecessaryFields">Whether include necessary fields</param>
+        /// <returns></returns>
+        internal static IEnumerable<EntityField> GetQueryFields(IQuery query, Type entityType, bool forceNecessaryFields)
         {
-            return DataManager.GetQueryFields(DatabaseServerType.Oracle, entityType, query, forceMustFields);
+            return DataManager.GetQueryFields(CurrentDatabaseServerType, entityType, query, forceNecessaryFields);
         }
 
         /// <summary>
@@ -398,7 +429,7 @@ namespace EZNEW.Data.Oracle
         /// <returns></returns>
         internal static IEnumerable<EntityField> GetFields(Type entityType, IEnumerable<string> propertyNames)
         {
-            return DataManager.GetFields(DatabaseServerType.Oracle, entityType, propertyNames);
+            return DataManager.GetFields(CurrentDatabaseServerType, entityType, propertyNames);
         }
 
         #endregion
@@ -416,7 +447,7 @@ namespace EZNEW.Data.Oracle
             {
                 return string.Empty;
             }
-            return DataManager.GetDefaultField(DatabaseServerType.Oracle, entityType)?.FieldName ?? string.Empty;
+            return DataManager.GetDefaultField(CurrentDatabaseServerType, entityType)?.FieldName ?? string.Empty;
         }
 
         #endregion
@@ -426,8 +457,8 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Format parameter name
         /// </summary>
-        /// <param name="parameterName">parameter name</param>
-        /// <param name="parameterSequence">parameter sequence</param>
+        /// <param name="parameterName">Parameter name</param>
+        /// <param name="parameterSequence">Parameter sequence</param>
         /// <returns></returns>
         internal static string FormatParameterName(string parameterName, int parameterSequence)
         {
@@ -436,46 +467,16 @@ namespace EZNEW.Data.Oracle
 
         #endregion
 
-        #region Parse parameter
+        #region Convert parameter
 
         /// <summary>
-        /// Parse parameter
+        /// Convert parameter
         /// </summary>
-        /// <param name="originParameters">origin parameter</param>
-        /// <returns></returns>
-        internal static CommandParameters ParseParameters(object originParameters)
+        /// <param name="originalParameter">Original parameter</param>
+        /// <returns>Return command parameters</returns>
+        internal static CommandParameters ConvertParameter(object originalParameter)
         {
-            if (originParameters == null)
-            {
-                return null;
-            }
-            if (originParameters is CommandParameters commandParameters)
-            {
-                return commandParameters;
-            }
-            commandParameters = new CommandParameters();
-            if (originParameters is IEnumerable<KeyValuePair<string, string>> stringParametersDict)
-            {
-                commandParameters.Add(stringParametersDict);
-            }
-            else if (originParameters is IEnumerable<KeyValuePair<string, dynamic>> dynamicParametersDict)
-            {
-                commandParameters.Add(dynamicParametersDict);
-            }
-            else if (originParameters is IEnumerable<KeyValuePair<string, object>> objectParametersDict)
-            {
-                commandParameters.Add(objectParametersDict);
-            }
-            else if (originParameters is IEnumerable<KeyValuePair<string, IModificationValue>> modifyParametersDict)
-            {
-                commandParameters.Add(modifyParametersDict);
-            }
-            else
-            {
-                objectParametersDict = originParameters.ObjectToDcitionary();
-                commandParameters.Add(objectParametersDict);
-            }
-            return commandParameters;
+            return CommandParameters.Parse(originalParameter);
         }
 
         #endregion
@@ -485,24 +486,11 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Convert command parameters
         /// </summary>
-        /// <param name="cmdParameters">command parameters</param>
-        /// <returns></returns>
-        internal static DynamicParameters ConvertCmdParameters(CommandParameters cmdParameters)
+        /// <param name="commandParameters">Command parameters</param>
+        /// <returns>Return dynamic parameters</returns>
+        internal static DynamicParameters ConvertCmdParameters(CommandParameters commandParameters)
         {
-            if (cmdParameters?.Parameters.IsNullOrEmpty() ?? true)
-            {
-                return null;
-            }
-            DynamicParameters dynamicParameters = new DynamicParameters();
-            foreach (var item in cmdParameters.Parameters)
-            {
-                var parameter = DataManager.HandleParameter(DatabaseServerType.Oracle, item.Value);
-                dynamicParameters.Add(parameter.Name, parameter.Value
-                                    , parameter.DbType, parameter.ParameterDirection
-                                    , parameter.Size, parameter.Precision
-                                    , parameter.Scale);
-            }
-            return dynamicParameters;
+            return commandParameters?.ConvertToDynamicParameters(CurrentDatabaseServerType);
         }
 
         #endregion
@@ -512,13 +500,13 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Get transaction isolation level
         /// </summary>
-        /// <param name="dataIsolationLevel">data isolation level</param>
+        /// <param name="dataIsolationLevel">Data isolation level</param>
         /// <returns></returns>
         internal static IsolationLevel? GetTransactionIsolationLevel(DataIsolationLevel? dataIsolationLevel)
         {
             if (!dataIsolationLevel.HasValue)
             {
-                dataIsolationLevel = DataManager.GetDataIsolationLevel(DatabaseServerType.Oracle);
+                dataIsolationLevel = DataManager.GetDataIsolationLevel(CurrentDatabaseServerType);
             }
             return DataManager.GetSystemIsolationLevel(dataIsolationLevel);
         }
@@ -530,15 +518,15 @@ namespace EZNEW.Data.Oracle
         /// <summary>
         /// Get query transaction
         /// </summary>
-        /// <param name="connection">connection</param>
-        /// <param name="query">query</param>
+        /// <param name="connection">Database connection</param>
+        /// <param name="query">Query object</param>
         /// <returns></returns>
         internal static IDbTransaction GetQueryTransaction(IDbConnection connection, IQuery query)
         {
             DataIsolationLevel? dataIsolationLevel = query?.IsolationLevel;
             if (!dataIsolationLevel.HasValue)
             {
-                dataIsolationLevel = DataManager.GetDataIsolationLevel(DatabaseServerType.Oracle);
+                dataIsolationLevel = DataManager.GetDataIsolationLevel(CurrentDatabaseServerType);
             }
             var systemIsolationLevel = GetTransactionIsolationLevel(dataIsolationLevel);
             if (systemIsolationLevel.HasValue)
@@ -554,20 +542,20 @@ namespace EZNEW.Data.Oracle
 
         #endregion
 
-        #region Get execute transaction
+        #region Get execution transaction
 
         /// <summary>
-        /// Get execute transaction
+        /// Get execution transaction
         /// </summary>
-        /// <param name="connection">connection</param>
-        /// <param name="executeOption">execute option</param>
+        /// <param name="connection">Database connection</param>
+        /// <param name="executionOptions">Execution options</param>
         /// <returns></returns>
-        internal static IDbTransaction GetExecuteTransaction(IDbConnection connection, CommandExecutionOptions executeOption)
+        internal static IDbTransaction GetExecutionTransaction(IDbConnection connection, CommandExecutionOptions executionOptions)
         {
-            DataIsolationLevel? dataIsolationLevel = executeOption?.IsolationLevel;
+            DataIsolationLevel? dataIsolationLevel = executionOptions?.IsolationLevel;
             if (!dataIsolationLevel.HasValue)
             {
-                dataIsolationLevel = DataManager.GetDataIsolationLevel(DatabaseServerType.Oracle);
+                dataIsolationLevel = DataManager.GetDataIsolationLevel(CurrentDatabaseServerType);
             }
             var systemIsolationLevel = DataManager.GetSystemIsolationLevel(dataIsolationLevel);
             if (connection.State != ConnectionState.Open)

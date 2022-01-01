@@ -1,14 +1,17 @@
-﻿using Oracle.ManagedDataAccess.Client;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using Oracle.ManagedDataAccess.Client;
 
 namespace EZNEW.Data.Oracle
 {
-    public class OracleBulkInsertOptions : IBulkInsertOptions
+    /// <summary>
+    /// Defines oracle bulk insertion options
+    /// </summary>
+    public class OracleBulkInsertionOptions : IBulkInsertionOptions
     {
         /// <summary>
-        /// Whether use transaction
+        /// Indicates whether use transaction
         /// </summary>
         public bool UseTransaction { get; set; }
 
@@ -28,19 +31,19 @@ namespace EZNEW.Data.Oracle
         public int BulkCopyTimeout { get; set; }
 
         /// <summary>
-        /// Gets or sets the number of rows to be sent as a batch to the database.
+        /// Gets or sets the number of rows to be sent as a batch to the database
         /// </summary>
         public int BatchSize { get; set; }
 
         /// <summary>
-        /// Gets or sets whether convert the table or field name to uppercase
-        /// Default is true
+        /// Indicates whether convert the table or field name to uppercase.
+        /// Default is true.
         /// </summary>
         public bool Uppercase { get; set; } = true;
 
         /// <summary>
-        ///  Whether wrap field and table name with quotes
-        ///  Default is true
+        /// Indicates whether wrap field and table name with quotes.
+        ///  Default is true.
         /// </summary>
         public bool WrapWithQuotes { get; set; } = true;
     }
