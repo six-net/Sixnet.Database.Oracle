@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace EZNEW.Data.Oracle
+﻿namespace Sixnet.Database.Oracle
 {
     /// <summary>
     /// Defines oracle options

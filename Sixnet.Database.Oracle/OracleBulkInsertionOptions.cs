@@ -1,9 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
+﻿using System.Collections.Generic;
 using Oracle.ManagedDataAccess.Client;
+using Sixnet.Development.Data.Database;
 
-namespace EZNEW.Data.Oracle
+namespace Sixnet.Database.Oracle
 {
     /// <summary>
     /// Defines oracle bulk insertion options
@@ -34,17 +33,5 @@ namespace EZNEW.Data.Oracle
         /// Gets or sets the number of rows to be sent as a batch to the database
         /// </summary>
         public int BatchSize { get; set; }
-
-        /// <summary>
-        /// Indicates whether convert the table or field name to uppercase.
-        /// Default is true.
-        /// </summary>
-        public bool Uppercase { get; set; } = true;
-
-        /// <summary>
-        /// Indicates whether wrap field and table name with quotes.
-        ///  Default is true.
-        /// </summary>
-        public bool WrapWithQuotes { get; set; } = true;
     }
 }
