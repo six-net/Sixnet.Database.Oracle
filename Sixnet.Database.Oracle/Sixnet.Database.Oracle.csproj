@@ -4,15 +4,8 @@
     <TargetFramework>netstandard2.1</TargetFramework>
     <SignAssembly>true</SignAssembly>
     <AssemblyOriginatorKeyFile>sixnet.snk</AssemblyOriginatorKeyFile>
-    <Version>3.1.0</Version>
     <Authors>DingBin.Li</Authors>
-    <Company>EZNEW</Company>
     <Copyright>Copyright © DingBin.Li</Copyright>
-    <Description>Provides access to Oracle databases based on the EZNEW development framework</Description>
-    <FileVersion>3.1.0.20</FileVersion>
-    <PackageProjectUrl>https://github.com/eznew-net</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/eznew-net/EZNEW.Data.Oracle</RepositoryUrl>
-    <PackageTags>.NET,EZNEW,Oracle</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
