@@ -6,11 +6,11 @@ namespace Sixnet.Database.Oracle
     /// <summary>
     /// Default default field formatter for oracle
     /// </summary>
-    public class OracleDefaultFieldFormatter : IFieldFormatter
+    public class OracleDefaultFieldFormatter : ISixnetFieldFormatter
     {
-        public string Format(FieldFormatContext context)
+        public string Format(FormatFieldContext context)
         {
-            var formatOption = context.FormatOption;
+            var formatOption = context.FormatSetting;
             var formatedFieldName = context.FieldName;
             formatedFieldName = formatOption.Name switch
             {

@@ -14,7 +14,7 @@ namespace Sixnet.Database.Oracle
     /// <summary>
     /// Defines database provider implementation for oracle
     /// </summary>
-    public class OracleProvider : BaseDatabaseProvider
+    public class OracleProvider : BaseSixnetDatabaseProvider
     {
         #region Constructor
 
@@ -32,7 +32,7 @@ namespace Sixnet.Database.Oracle
         /// </summary>
         /// <param name="server">Database server</param>
         /// <returns></returns>
-        public override IDbConnection GetDbConnection(DatabaseServer server)
+        public override IDbConnection GetDbConnection(SixnetDatabaseServer server)
         {
             return OracleManager.GetConnection(server);
         }
@@ -45,7 +45,7 @@ namespace Sixnet.Database.Oracle
         /// Get data command resolver
         /// </summary>
         /// <returns></returns>
-        protected override IDataCommandResolver GetDataCommandResolver()
+        protected override ISixnetDataCommandResolver GetDataCommandResolver()
         {
             return OracleManager.GetCommandResolver();
         }
@@ -73,7 +73,7 @@ namespace Sixnet.Database.Oracle
         /// </summary>
         /// <param name="command">Database multiple command</param>
         /// <returns>Added data identities,Key: command id, Value: identity value</returns>
-        public override Dictionary<string, TIdentity> InsertAndReturnIdentity<TIdentity>(DatabaseMultipleCommand command)
+        public override Dictionary<string, TIdentity> InsertAndReturnIdentity<TIdentity>(MultipleDatabaseCommand command)
         {
             var dataCommandResolver = GetDataCommandResolver() as OracleDataCommandResolver;
             var statements = dataCommandResolver.GenerateDatabaseExecutionStatements(command);
@@ -102,7 +102,7 @@ namespace Sixnet.Database.Oracle
         /// </summary>
         /// <param name="command">Database multiple command</param>
         /// <returns>Added data identities,Key: command id, Value: identity value</returns>
-        public override async Task<Dictionary<string, TIdentity>> InsertAndReturnIdentityAsync<TIdentity>(DatabaseMultipleCommand command)
+        public override async Task<Dictionary<string, TIdentity>> InsertAndReturnIdentityAsync<TIdentity>(MultipleDatabaseCommand command)
         {
             var dataCommandResolver = GetDataCommandResolver() as OracleDataCommandResolver;
             var statements = dataCommandResolver.GenerateDatabaseExecutionStatements(command);
@@ -136,7 +136,7 @@ namespace Sixnet.Database.Oracle
         /// <param name="server">Database server</param>
         /// <param name="dataTable">Data table</param>
         /// <param name="bulkInsertOptions">Insert options</param>
-        public override async Task BulkInsertAsync(DatabaseBulkInsertCommand command)
+        public override async Task BulkInsertAsync(BulkInsertDatabaseCommand command)
         {
             BulkInsert(command);
             await Task.CompletedTask.ConfigureAwait(false);
@@ -148,12 +148,12 @@ namespace Sixnet.Database.Oracle
         /// <param name="server">Database server</param>
         /// <param name="dataTable">Data table</param>
         /// <param name="bulkInsertOptions">Insert options</param>
-        public override void BulkInsert(DatabaseBulkInsertCommand command)
+        public override void BulkInsert(BulkInsertDatabaseCommand command)
         {
             var server = command?.Connection?.DatabaseServer;
-            ThrowHelper.ThrowArgNullIf(server == null, nameof(DatabaseBulkInsertCommand.Connection.DatabaseServer));
+            SixnetDirectThrower.ThrowArgNullIf(server == null, nameof(BulkInsertDatabaseCommand.Connection.DatabaseServer));
             var dataTable = command.DataTable;
-            ThrowHelper.ThrowArgNullIf(dataTable == null, nameof(DatabaseBulkInsertCommand.DataTable));
+            SixnetDirectThrower.ThrowArgNullIf(dataTable == null, nameof(BulkInsertDatabaseCommand.DataTable));
 
             var oracleBulkInsertOptions = command.BulkInsertionOptions as OracleBulkInsertionOptions;
             oracleBulkInsertOptions ??= new OracleBulkInsertionOptions();

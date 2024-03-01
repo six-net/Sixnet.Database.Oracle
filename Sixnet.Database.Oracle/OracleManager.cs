@@ -1,16 +1,14 @@
-﻿using System;
-using System.Data;
+﻿using System.Data;
 using Oracle.ManagedDataAccess.Client;
 using Sixnet.Development.Data;
 using Sixnet.Development.Data.Database;
-using Sixnet.Development.Data.ParameterHandler.Handler;
 
 namespace Sixnet.Database.Oracle
 {
     /// <summary>
     /// Defines oracle manager
     /// </summary>
-    public static class OracleManager
+    internal static class OracleManager
     {
         #region Fields
 
@@ -41,27 +39,6 @@ namespace Sixnet.Database.Oracle
 
         #endregion
 
-        #region Configure oracle
-
-        /// <summary>
-        /// Configure oracle
-        /// </summary>
-        /// <param name="configureDelegate">Configure delegate</param>
-        public static void Configure(Action<OracleOptions> configureDelegate)
-        {
-            configureDelegate?.Invoke(OracleOptions);
-            if (OracleOptions.FormattingGuid)
-            {
-                DataManager.AddParameterHandler(CurrentDatabaseServerType, DbType.Guid, new GuidFormattingParameterHandler());
-            }
-            else
-            {
-                DataManager.RemoveParameterHandler(CurrentDatabaseServerType, DbType.Guid);
-            }
-        }
-
-        #endregion
-
         #region Get database connection
 
         /// <summary>
@@ -69,9 +46,9 @@ namespace Sixnet.Database.Oracle
         /// </summary>
         /// <param name="server">Database server</param>
         /// <returns>Return database connection</returns>
-        internal static IDbConnection GetConnection(DatabaseServer server)
+        internal static IDbConnection GetConnection(SixnetDatabaseServer server)
         {
-            return DataManager.GetDatabaseConnection(server) ?? new OracleConnection(server.ConnectionString);
+            return SixnetDataManager.GetDatabaseConnection(server) ?? new OracleConnection(server.ConnectionString);
         }
 
         #endregion

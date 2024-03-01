@@ -7,7 +7,7 @@ namespace Sixnet.Database.Oracle
     /// <summary>
     /// Defines oracle bulk insertion options
     /// </summary>
-    public class OracleBulkInsertionOptions : IBulkInsertionOptions
+    public class OracleBulkInsertionOptions : ISixnetBulkInsertionOptions
     {
         /// <summary>
         /// Indicates whether use transaction
