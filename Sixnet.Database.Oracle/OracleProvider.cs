@@ -14,7 +14,7 @@ namespace Sixnet.Database.Oracle
     /// <summary>
     /// Defines database provider implementation for oracle
     /// </summary>
-    public class OracleProvider : BaseSixnetDatabaseProvider
+    public class OracleProvider : BaseDatabaseProvider
     {
         #region Constructor
 
@@ -32,7 +32,7 @@ namespace Sixnet.Database.Oracle
         /// </summary>
         /// <param name="server">Database server</param>
         /// <returns></returns>
-        public override IDbConnection GetDbConnection(SixnetDatabaseServer server)
+        public override IDbConnection GetDbConnection(DatabaseServer server)
         {
             return OracleManager.GetConnection(server);
         }

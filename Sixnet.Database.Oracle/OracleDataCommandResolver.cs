@@ -18,13 +18,13 @@ namespace Sixnet.Database.Oracle
     /// <summary>
     /// Defines command resolver for oracle
     /// </summary>
-    public class OracleDataCommandResolver : BaseSixnetDataCommandResolver
+    public class OracleDataCommandResolver : BaseDataCommandResolver
     {
         #region Constructor
 
         public OracleDataCommandResolver()
         {
-            DatabaseServerType = DatabaseServerType.Oracle;
+            DatabaseType = DatabaseType.Oracle;
             DefaultFieldFormatter = new OracleDefaultFieldFormatter();
             ParameterPrefix = ":";
             WrapKeywordFunc = OracleManager.FormatKeyword;
@@ -75,7 +75,7 @@ namespace Sixnet.Database.Oracle
         {
             var queryable = translationResult.GetOriginalQueryable();
             string sqlStatement;
-            IEnumerable<ISixnetDataField> outputFields = null;
+            IEnumerable<ISixnetField> outputFields = null;
             switch (queryable.ExecutionMode)
             {
                 case QueryableExecutionMode.Script:
@@ -121,7 +121,7 @@ namespace Sixnet.Database.Oracle
                     // output fields
                     if (outputFields.IsNullOrEmpty() || !queryable.SelectedFields.IsNullOrEmpty())
                     {
-                        outputFields = SixnetDataManager.GetQueryableFields(DatabaseServerType, queryable.GetModelType(), queryable, context.IsRootQueryable(queryable));
+                        outputFields = SixnetDataManager.GetQueryableFields(DatabaseType, queryable.GetModelType(), queryable, context.IsRootQueryable(queryable));
                     }
                     var outputFieldString = FormatFieldsString(context, queryable, location, FieldLocation.Output, outputFields);
                     //pre script
@@ -175,12 +175,12 @@ namespace Sixnet.Database.Oracle
             var command = context.DataCommandExecutionContext.Command;
             var dataCommandExecutionContext = context.DataCommandExecutionContext;
             var entityType = dataCommandExecutionContext.Command.GetEntityType();
-            var fields = SixnetDataManager.GetInsertableFields(DatabaseServerType, entityType);
+            var fields = SixnetDataManager.GetInsertableFields(DatabaseType, entityType);
             var fieldCount = fields.GetCount();
             var insertFields = new List<string>(fieldCount);
             var insertValues = new List<string>(fieldCount);
-            EntityField autoIncrementField = null;
-            EntityField splitField = null;
+            DataField autoIncrementField = null;
+            DataField splitField = null;
             dynamic splitValue = default;
 
             foreach (var field in fields)
@@ -195,7 +195,7 @@ namespace Sixnet.Database.Oracle
                     continue;
                 }
                 // fields
-                insertFields.Add(WrapKeywordFunc(field.FieldName));
+                insertFields.Add(WrapKeywordFunc(field.GetFieldName(DatabaseType)));
                 // values
                 var insertValue = command.FieldsAssignment.GetNewValue(field.PropertyName);
                 insertValues.Add(FormatInsertValueField(context, command.Queryable, insertValue));
@@ -221,8 +221,8 @@ namespace Sixnet.Database.Oracle
             if (autoIncrementField != null)
             {
                 var idOutputParameterName = FormatParameterName(command.Id);
-                incrementFieldScript = $" RETURNING {WrapKeywordFunc(autoIncrementField.FieldName)} INTO {idOutputParameterName}";
-                context.AddOutputParameter(command.Id, autoIncrementField.DataType.GetDbType());
+                incrementFieldScript = $" RETURNING {WrapKeywordFunc(autoIncrementField.GetFieldName(DatabaseType))} INTO {idOutputParameterName}";
+                context.AddOutputParameter(command.Id, autoIncrementField.GetDataType().GetDbType());
             }
 
             var scriptTemplate = $"INSERT INTO {{0}} ({string.Join(",", insertFields)}) VALUES ({string.Join(",", insertValues)}){incrementFieldScript}";
@@ -279,9 +279,9 @@ namespace Sixnet.Database.Oracle
             {
                 var newValue = newValueItem.Value;
                 var propertyName = newValueItem.Key;
-                var updateField = SixnetDataManager.GetField(dataCommandExecutionContext.Server.ServerType, command.GetEntityType(), PropertyField.Create(propertyName)) as PropertyField;
+                var updateField = SixnetDataManager.GetField(dataCommandExecutionContext.Server.DatabaseType, command.GetEntityType(), DataField.Create(propertyName)) as DataField;
                 SixnetDirectThrower.ThrowSixnetExceptionIf(updateField == null, $"Not found field:{propertyName}");
-                var fieldFormattedName = WrapKeywordFunc(updateField.FieldName);
+                var fieldFormattedName = WrapKeywordFunc(updateField.GetFieldName(DatabaseType));
                 var newValueExpression = FormatUpdateValueField(context, command, newValue);
                 updateSetArray.Add($"{fieldFormattedName}={newValueExpression}");
             }
@@ -361,7 +361,7 @@ namespace Sixnet.Database.Oracle
             }
             else
             {
-                var primaryKeyFields = SixnetDataManager.GetFields(DatabaseServerType, entityType, SixnetEntityManager.GetPrimaryKeyFields(entityType)).ToList();
+                var primaryKeyFields = SixnetDataManager.GetFields(DatabaseType, entityType, SixnetEntityManager.GetPrimaryKeyFields(entityType)).ToList();
                 SixnetException.ThrowIf(primaryKeyFields.IsNullOrEmpty(), $"{entityType.FullName} not set primary key");
 
                 var primaryKeyString = string.Join("||", primaryKeyFields.Select(pk => FormatField(context, command.Queryable, pk, QueryableLocation.Top, FieldLocation.Criterion, tablePetName: tablePetName)));
@@ -416,7 +416,7 @@ namespace Sixnet.Database.Oracle
                     continue;
                 }
                 var entityType = newTableInfo.EntityType;
-                var entityConfig = SixnetEntityManager.GetEntityConfiguration(entityType);
+                var entityConfig = SixnetEntityManager.GetEntityConfig(entityType);
                 SixnetDirectThrower.ThrowSixnetExceptionIf(entityConfig == null, $"Get entity config failed for {entityType.Name}");
 
                 var newFieldScripts = new List<string>();
@@ -424,9 +424,9 @@ namespace Sixnet.Database.Oracle
                 foreach (var field in entityConfig.AllFields)
                 {
                     var dataField = SixnetDataManager.GetField(OracleManager.CurrentDatabaseServerType, entityType, field.Value);
-                    if (dataField is EntityField dataEntityField)
+                    if (dataField is DataField dataEntityField)
                     {
-                        var dataFieldName = dataEntityField.FieldName;
+                        var dataFieldName = dataEntityField.GetFieldName(DatabaseType);
                         newFieldScripts.Add($"{dataFieldName}{GetSqlDataType(dataEntityField, options)}{GetFieldNullable(dataEntityField, options)}{GetSqlDefaultValue(dataEntityField, options)}");
                         if (dataEntityField.InRole(FieldRole.PrimaryKey))
                         {
@@ -467,7 +467,7 @@ namespace Sixnet.Database.Oracle
                 CombineType.Union => " UNION ",
                 CombineType.Except => " MINUS ",
                 CombineType.Intersect => " INTERSECT ",
-                _ => throw new InvalidOperationException($"{DatabaseServerType} not support {combineType}"),
+                _ => throw new InvalidOperationException($"{DatabaseType} not support {combineType}"),
             };
         }
 
@@ -505,7 +505,7 @@ namespace Sixnet.Database.Oracle
         /// </summary>
         /// <param name="field">Field</param>
         /// <returns></returns>
-        protected override string GetSqlDataType(EntityField field, MigrationInfo options)
+        protected override string GetSqlDataType(DataField field, MigrationInfo options)
         {
             SixnetDirectThrower.ThrowArgNullIf(field == null, nameof(field));
             var dbTypeName = "";
@@ -515,7 +515,7 @@ namespace Sixnet.Database.Oracle
             }
             else
             {
-                var dbType = field.DataType.GetDbType();
+                var dbType = field.GetDataType().GetDbType();
                 var length = field.Length;
                 var precision = field.Precision;
                 var notFixedLength = options.NotFixedLength || field.HasDbFeature(FieldDbFeature.NotFixedLength);
