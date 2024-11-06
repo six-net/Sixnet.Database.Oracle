@@ -150,16 +150,15 @@ namespace Sixnet.Database.Oracle
         /// <param name="bulkInsertOptions">Insert options</param>
         public override void BulkInsert(BulkInsertDatabaseCommand command)
         {
-            var server = command?.Connection?.DatabaseServer;
-            SixnetDirectThrower.ThrowArgNullIf(server == null, nameof(BulkInsertDatabaseCommand.Connection.DatabaseServer));
-            var dataTable = command.DataTable;
-            SixnetDirectThrower.ThrowArgNullIf(dataTable == null, nameof(BulkInsertDatabaseCommand.DataTable));
-
-            var oracleBulkInsertOptions = command.BulkInsertionOptions as OracleBulkInsertionOptions;
-            oracleBulkInsertOptions ??= new OracleBulkInsertionOptions();
-            using (var oracleBulkCopy = new OracleBulkCopy(server?.ConnectionString))
+            try
             {
-                try
+                var dataTable = command.DataTable;
+                SixnetDirectThrower.ThrowArgNullIf(dataTable == null, nameof(BulkInsertDatabaseCommand.DataTable));
+
+                var oracleBulkInsertOptions = command.BulkInsertionOptions as OracleBulkInsertionOptions;
+                oracleBulkInsertOptions ??= new OracleBulkInsertionOptions();
+                var conn = command.Connection.DbConnection as OracleConnection;
+                using (var oracleBulkCopy = new OracleBulkCopy(conn))
                 {
                     oracleBulkCopy.DestinationTableName = dataTable.TableName;
                     if (oracleBulkInsertOptions.UseTransaction)
@@ -202,20 +201,30 @@ namespace Sixnet.Database.Oracle
                     oracleBulkCopy.DestinationTableName = OracleManager.FormatKeyword(oracleBulkCopy.DestinationTableName);
                     oracleBulkCopy.WriteToServer(dataTable);
                 }
-                catch (Exception ex)
-                {
-                    throw ex;
-                }
-                finally
-                {
-                    if (oracleBulkCopy?.Connection != null && oracleBulkCopy.Connection.State != ConnectionState.Closed)
-                    {
-                        oracleBulkCopy.Connection.Close();
-                    }
-                }
+            }
+            catch (Exception ex)
+            {
+                throw GetSqlException(ex);
             }
         }
 
         #endregion                                                                                                                                                           
+
+        #region Get exception
+
+        protected override Exception GetSqlException(Exception ex)
+        {
+            if (ex is OracleException sqlException)
+            {
+                switch (sqlException.Number)
+                {
+                    case 1:
+                        return new SixnetSqlAlreadExistsException(sqlException.Message, sqlException);
+                }
+            }
+            return ex;
+        }
+
+        #endregion
     }
 }

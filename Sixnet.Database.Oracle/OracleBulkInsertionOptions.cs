@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using Oracle.ManagedDataAccess.Client;
+using Sixnet.Development.Data;
 using Sixnet.Development.Data.Database;
 
 namespace Sixnet.Database.Oracle
@@ -9,6 +10,11 @@ namespace Sixnet.Database.Oracle
     /// </summary>
     public class OracleBulkInsertionOptions : ISixnetBulkInsertionOptions
     {
+        /// <summary>
+        /// Gets or sets the data operation options
+        /// </summary>
+        public SixnetDataOperationOptions DataOperationOptions { get; set; }
+
         /// <summary>
         /// Indicates whether use transaction
         /// </summary>
