@@ -16,7 +16,7 @@
     <dependencies>
       <group targetFramework=".NETStandard2.1">
         <dependency id="Oracle.ManagedDataAccess.Core" version="3.21.120" />
-        <dependency id="Sixnet" version="2.1.0" />
+        <dependency id="Sixnet" version="2.1.1" />
       </group>
     </dependencies>
   </metadata>
