@@ -14,13 +14,13 @@ namespace Sixnet.Database.Oracle
     /// <summary>
     /// Defines database provider implementation for oracle
     /// </summary>
-    public class OracleProvider : BaseDatabaseProvider
+    public class OracleProvider : SixnetBaseDatabaseProvider
     {
         #region Constructor
 
         public OracleProvider()
         {
-            queryDatabaseTablesScript = "SELECT TABLE_NAME AS \"TableName\" FROM USER_TABLES WHERE TABLE_NAME NOT LIKE '%$%' AND TABLE_NAME NOT LIKE '%LOGMNRC_%' AND TABLE_NAME NOT LIKE '%LOGMNR%' AND TABLE_NAME NOT LIKE '%SQLPLUS_%' AND TABLE_NAME!='HELP' AND TABLE_NAME!= 'REDO_DB' AND TABLE_NAME!='REDO_LOG' AND TABLE_NAME!='SCHEDULER_PROGRAM_ARGS_TBL' AND TABLE_NAME!='SCHEDULER_JOB_ARGS_TBL'";
+            queryTablesScript = "SELECT TABLE_NAME AS \"TableName\" FROM USER_TABLES WHERE TABLE_NAME NOT LIKE '%$%' AND TABLE_NAME NOT LIKE '%LOGMNRC_%' AND TABLE_NAME NOT LIKE '%LOGMNR%' AND TABLE_NAME NOT LIKE '%SQLPLUS_%' AND TABLE_NAME!='HELP' AND TABLE_NAME!= 'REDO_DB' AND TABLE_NAME!='REDO_LOG' AND TABLE_NAME!='SCHEDULER_PROGRAM_ARGS_TBL' AND TABLE_NAME!='SCHEDULER_JOB_ARGS_TBL'";
         }
 
         #endregion
@@ -32,7 +32,7 @@ namespace Sixnet.Database.Oracle
         /// </summary>
         /// <param name="server">Database server</param>
         /// <returns></returns>
-        public override IDbConnection GetDbConnection(DatabaseServer server)
+        public override IDbConnection GetDbConnection(SixnetDatabaseServer server)
         {
             return OracleManager.GetConnection(server);
         }
@@ -59,7 +59,7 @@ namespace Sixnet.Database.Oracle
         /// </summary>
         /// <param name="parameters">Data command parameters</param>
         /// <returns></returns>
-        protected override DynamicParameters ConvertDataCommandParameters(DataCommandParameters parameters)
+        protected override DynamicParameters ConvertDataCommandParameters(SixnetDataCommandParameters parameters)
         {
             return parameters?.ConvertToDynamicParameters(OracleManager.CurrentDatabaseServerType);
         }
@@ -73,7 +73,7 @@ namespace Sixnet.Database.Oracle
         /// </summary>
         /// <param name="command">Database multiple command</param>
         /// <returns>Added data identities,Key: command id, Value: identity value</returns>
-        public override Dictionary<string, TIdentity> InsertAndReturnIdentity<TIdentity>(MultipleDatabaseCommand command)
+        public override Dictionary<string, TIdentity> InsertAndReturnIdentity<TIdentity>(SixnetMultipleDatabaseCommand command)
         {
             var dataCommandResolver = GetDataCommandResolver() as OracleDataCommandResolver;
             var statements = dataCommandResolver.GenerateDatabaseExecutionStatements(command);
@@ -102,7 +102,7 @@ namespace Sixnet.Database.Oracle
         /// </summary>
         /// <param name="command">Database multiple command</param>
         /// <returns>Added data identities,Key: command id, Value: identity value</returns>
-        public override async Task<Dictionary<string, TIdentity>> InsertAndReturnIdentityAsync<TIdentity>(MultipleDatabaseCommand command)
+        public override async Task<Dictionary<string, TIdentity>> InsertAndReturnIdentityAsync<TIdentity>(SixnetMultipleDatabaseCommand command)
         {
             var dataCommandResolver = GetDataCommandResolver() as OracleDataCommandResolver;
             var statements = dataCommandResolver.GenerateDatabaseExecutionStatements(command);
@@ -136,7 +136,7 @@ namespace Sixnet.Database.Oracle
         /// <param name="server">Database server</param>
         /// <param name="dataTable">Data table</param>
         /// <param name="bulkInsertOptions">Insert options</param>
-        public override async Task BulkInsertAsync(BulkInsertDatabaseCommand command)
+        public override async Task BulkInsertAsync(SixnetBulkInsertDatabaseCommand command)
         {
             BulkInsert(command);
             await Task.CompletedTask.ConfigureAwait(false);
@@ -148,12 +148,12 @@ namespace Sixnet.Database.Oracle
         /// <param name="server">Database server</param>
         /// <param name="dataTable">Data table</param>
         /// <param name="bulkInsertOptions">Insert options</param>
-        public override void BulkInsert(BulkInsertDatabaseCommand command)
+        public override void BulkInsert(SixnetBulkInsertDatabaseCommand command)
         {
             try
             {
                 var dataTable = command.DataTable;
-                SixnetDirectThrower.ThrowArgNullIf(dataTable == null, nameof(BulkInsertDatabaseCommand.DataTable));
+                SixnetDirectThrower.ThrowArgNullIf(dataTable == null, nameof(SixnetBulkInsertDatabaseCommand.DataTable));
 
                 var oracleBulkInsertOptions = command.BulkInsertionOptions as OracleBulkInsertionOptions;
                 oracleBulkInsertOptions ??= new OracleBulkInsertionOptions();

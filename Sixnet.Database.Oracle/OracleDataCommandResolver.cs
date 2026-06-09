@@ -18,16 +18,17 @@ namespace Sixnet.Database.Oracle
     /// <summary>
     /// Defines command resolver for oracle
     /// </summary>
-    public partial class OracleDataCommandResolver : BaseDataCommandResolver
+    public partial class OracleDataCommandResolver : SixnetBaseDataCommandResolver
     {
         #region Constructor
 
         public OracleDataCommandResolver()
         {
-            DatabaseType = DatabaseType.Oracle;
+            DatabaseType = SixnetDatabaseType.Oracle;
             DefaultFieldFormatter = new OracleDefaultFieldFormatter();
             ParameterPrefix = ":";
-            WrapKeywordFunc = OracleManager.FormatKeyword;
+            FormatObjectName = OracleManager.FormatKeyword;
+            WrapObjectName = OracleManager.WrapKeyword;
             TablePetNameKeyword = " ";
             RecursiveKeyword = "WITH";
             UseFieldForRecursive = true;
@@ -55,8 +56,8 @@ namespace Sixnet.Database.Oracle
             };
             NotParameterizationFormatterNameDict = new Dictionary<string, bool>()
             {
-                { FieldFormatterNames.JSON_VALUE,true},
-                { FieldFormatterNames.JSON_OBJECT,true}
+                { SixnetFieldFormatterNames.JSON_VALUE,true},
+                { SixnetFieldFormatterNames.JSON_OBJECT,true}
             };
         }
 
@@ -71,17 +72,17 @@ namespace Sixnet.Database.Oracle
         /// <param name="translationResult">Queryable translation result</param>
         /// <param name="queryableLocation">Queryable location</param>
         /// <returns></returns>
-        protected override QueryDatabaseStatement GenerateQueryStatementCore(DataCommandResolveContext context, QueryableTranslationResult translationResult, QueryableLocation location)
+        protected override SixnetQueryDatabaseStatement GenerateQueryStatementCore(SixnetDataCommandResolveContext context, SixnetQueryableTranslationResult translationResult, SixnetQueryableLocation location)
         {
             var queryable = translationResult.GetOriginalQueryable();
             string sqlStatement;
             IEnumerable<ISixnetField> outputFields = null;
             switch (queryable.ExecutionMode)
             {
-                case QueryableExecutionMode.Script:
+                case SixnetQueryableExecutionMode.Script:
                     sqlStatement = translationResult.GetCondition();
                     break;
-                case QueryableExecutionMode.Regular:
+                case SixnetQueryableExecutionMode.Regular:
                 default:
                     // table pet name
                     var tablePetName = context.GetTablePetName(queryable, queryable.GetModelType());
@@ -123,26 +124,32 @@ namespace Sixnet.Database.Oracle
                     {
                         outputFields = SixnetDataManager.GetQueryableFields(DatabaseType, queryable.GetModelType(), queryable, context.IsRootQueryable(queryable));
                     }
-                    var outputFieldString = FormatFieldsString(context, queryable, location, FieldLocation.Output, outputFields);
+                    var outputFieldString = FormatFieldsString(context, queryable, location, SixnetFieldLocation.Output, outputFields);
                     //pre script
                     var preScript = GetPreScript(context, location);
                     //statement
                     sqlStatement = $"SELECT{GetDistinctString(queryable)} {outputFieldString} FROM {targetScript}{sort}{limit}";
                     switch (queryable.OutputType)
                     {
-                        case QueryableOutputType.Count:
+                        case SixnetQueryableOutputType.Count:
                             sqlStatement = hasCombine
-                                ? $"{preScript}SELECT COUNT(1) FROM (({sqlStatement}){combine}){TablePetNameKeyword}{tablePetName}"
+                                ? hasSort
+                                    ? $"{preScript}SELECT COUNT(1) FROM ((SELECT {tablePetName}.* FROM ({sqlStatement}){TablePetNameKeyword}{tablePetName}){combine}){TablePetNameKeyword}{tablePetName}"
+                                    : $"{preScript}SELECT COUNT(1) FROM (({sqlStatement}){combine}){TablePetNameKeyword}{tablePetName}"
                                 : $"{preScript}SELECT COUNT(1) FROM ({sqlStatement}){TablePetNameKeyword}{tablePetName}";
                             break;
-                        case QueryableOutputType.Predicate:
+                        case SixnetQueryableOutputType.Predicate:
                             sqlStatement = hasCombine
-                                ? $"{preScript}SELECT CASE WHEN EXISTS(({sqlStatement}){combine}) THEN 1 ELSE 0 END FROM DUAL"
+                                ? hasSort
+                                    ? $"{preScript}SELECT CASE WHEN EXISTS((SELECT {tablePetName}.* FROM ({sqlStatement}){TablePetNameKeyword}{tablePetName}){combine}) THEN 1 ELSE 0 END FROM DUAL"
+                                    : $"{preScript}SELECT CASE WHEN EXISTS(({sqlStatement}){combine}) THEN 1 ELSE 0 END FROM DUAL"
                                 : $"{preScript}SELECT CASE WHEN EXISTS({sqlStatement}) THEN 1 ELSE 0 END FROM DUAL";
                             break;
                         default:
                             sqlStatement = hasCombine
-                            ? $"{preScript}({sqlStatement}){combine}"
+                            ? hasSort
+                                ? $"{preScript}(SELECT {tablePetName}.* FROM ({sqlStatement}){TablePetNameKeyword}{tablePetName}){combine}"
+                                : $"{preScript}({sqlStatement}){combine}"
                             : $"{preScript}{sqlStatement}";
                             break;
                     }
@@ -153,12 +160,12 @@ namespace Sixnet.Database.Oracle
             var parameters = context.GetParameters();
 
             //log script
-            if (location == QueryableLocation.Top)
+            if (location == SixnetQueryableLocation.Top)
             {
                 LogScript(sqlStatement, parameters);
             }
 
-            return QueryDatabaseStatement.Create(sqlStatement, parameters, outputFields);
+            return SixnetQueryDatabaseStatement.Create(sqlStatement, parameters, outputFields);
         }
 
         #endregion
@@ -170,7 +177,7 @@ namespace Sixnet.Database.Oracle
         /// </summary>
         /// <param name="context">Command resolve context</param>
         /// <returns></returns>
-        protected override List<ExecutionDatabaseStatement> GenerateInsertStatements(DataCommandResolveContext context)
+        protected override List<SixnetExecutionDatabaseStatement> GenerateInsertStatements(SixnetDataCommandResolveContext context)
         {
             var command = context.DataCommandExecutionContext.Command;
             var dataCommandExecutionContext = context.DataCommandExecutionContext;
@@ -179,31 +186,31 @@ namespace Sixnet.Database.Oracle
             var fieldCount = fields.GetCount();
             var insertFields = new List<string>(fieldCount);
             var insertValues = new List<string>(fieldCount);
-            DataField autoIncrementField = null;
-            DataField splitField = null;
+            SixnetDataField autoIncrementField = null;
+            SixnetDataField splitField = null;
             dynamic splitValue = default;
 
             foreach (var field in fields)
             {
-                if (field.InRole(FieldRole.Increment))
+                if (field.InRole(SixnetFieldRole.Increment))
                 {
                     autoIncrementField ??= field;
-                    if (!autoIncrementField.InRole(FieldRole.PrimaryKey) && field.InRole(FieldRole.PrimaryKey)) // get first primary key field
+                    if (!autoIncrementField.InRole(SixnetFieldRole.PrimaryKey) && field.InRole(SixnetFieldRole.PrimaryKey)) // get first primary key field
                     {
                         autoIncrementField = field;
                     }
-                    if (!SixnetDataManager.AllowInsertIncrementField(context.DataCommandExecutionContext.Command?.Options))
+                    if (!SixnetDataManager.AllowInsertIncrementField(context.DataCommandExecutionContext))
                     {
                         continue;
                     }
                 }
                 // fields
-                insertFields.Add(WrapKeywordFunc(field.GetFieldName(DatabaseType)));
+                insertFields.Add(FormatAndWrapKeywordFunc(field.GetFieldName(DatabaseType)));
                 // values
                 var insertValue = command.FieldsAssignment.GetNewValue(field.PropertyName);
                 insertValues.Add(FormatInsertValueField(context, command.Queryable, insertValue));
                 // split value
-                if (field.InRole(FieldRole.SplitValue))
+                if (field.InRole(SixnetFieldRole.SplitValue))
                 {
                     splitValue = insertValue;
                     splitField = field;
@@ -224,18 +231,18 @@ namespace Sixnet.Database.Oracle
             if (autoIncrementField != null)
             {
                 var idOutputParameterName = FormatParameterName(command.Id);
-                incrementFieldScript = $" RETURNING {WrapKeywordFunc(autoIncrementField.GetFieldName(DatabaseType))} INTO {idOutputParameterName}";
+                incrementFieldScript = $" RETURNING {FormatAndWrapKeywordFunc(autoIncrementField.GetFieldName(DatabaseType))} INTO {idOutputParameterName}";
                 context.AddOutputParameter(command.Id, autoIncrementField.GetDataType().GetDbType());
             }
 
             var scriptTemplate = $"INSERT INTO {{0}} ({string.Join(",", insertFields)}) VALUES ({string.Join(",", insertValues)}){incrementFieldScript}";
 
-            var statements = new List<ExecutionDatabaseStatement>();
+            var statements = new List<SixnetExecutionDatabaseStatement>();
             foreach (var tableName in tableNames)
             {
-                statements.Add(new ExecutionDatabaseStatement()
+                statements.Add(new SixnetExecutionDatabaseStatement()
                 {
-                    Script = string.Format(scriptTemplate, WrapKeywordFunc(tableName)),
+                    Script = string.Format(scriptTemplate, FormatAndWrapKeywordFunc(tableName)),
                     ScriptType = GetCommandType(command),
                     Parameters = context.GetParameters(),
                     MustAffectData = true
@@ -254,7 +261,7 @@ namespace Sixnet.Database.Oracle
         /// </summary>
         /// <param name="context">Command resolve context</param>
         /// <returns></returns>
-        protected override List<ExecutionDatabaseStatement> GenerateUpdateStatements(DataCommandResolveContext context)
+        protected override List<SixnetExecutionDatabaseStatement> GenerateUpdateStatements(SixnetDataCommandResolveContext context)
         {
             var command = context.DataCommandExecutionContext.Command;
             SixnetException.ThrowIf(command?.FieldsAssignment?.NewValues.IsNullOrEmpty() ?? true, "No set update field");
@@ -282,9 +289,9 @@ namespace Sixnet.Database.Oracle
             {
                 var newValue = newValueItem.Value;
                 var propertyName = newValueItem.Key;
-                var updateField = SixnetDataManager.GetField(dataCommandExecutionContext.Server.DatabaseType, command.GetEntityType(), DataField.Create(propertyName)) as DataField;
+                var updateField = SixnetDataManager.GetField(dataCommandExecutionContext.Server.DatabaseType, command.GetEntityType(), SixnetDataField.Create(propertyName)) as SixnetDataField;
                 SixnetDirectThrower.ThrowSixnetExceptionIf(updateField == null, $"Not found field:{propertyName}");
-                var fieldFormattedName = WrapKeywordFunc(updateField.GetFieldName(DatabaseType));
+                var fieldFormattedName = FormatAndWrapKeywordFunc(updateField.GetFieldName(DatabaseType));
                 var newValueExpression = FormatUpdateValueField(context, command, newValue);
                 updateSetArray.Add($"{fieldFormattedName}={newValueExpression}");
             }
@@ -297,22 +304,22 @@ namespace Sixnet.Database.Oracle
             }
             else
             {
-                var queryStatement = GenerateQueryStatementCore(context, translationResult, QueryableLocation.UsingSource);
+                var queryStatement = GenerateQueryStatementCore(context, translationResult, SixnetQueryableLocation.UsingSource);
                 var updateTablePetName = "UTB";
                 var joinItems = FormatWrapJoinPrimaryKeys(context, command.Queryable, command.GetEntityType(), tablePetName, tablePetName, updateTablePetName);
                 scriptTemplate = $"MERGE INTO {{0}}{TablePetNameKeyword}{tablePetName} USING ({queryStatement.Script}) {updateTablePetName} ON ({string.Join(" AND ", joinItems)}) WHEN MATCHED THEN UPDATE SET {string.Join(",", updateSetArray)}";
             }
 
             // parameters
-            var parameters = ConvertParameter(command.ScriptParameters) ?? new DataCommandParameters();
+            var parameters = ConvertParameter(command.ScriptParameters) ?? new SixnetDataCommandParameters();
             parameters.Union(context.GetParameters());
 
-            var statements = new List<ExecutionDatabaseStatement>();
+            var statements = new List<SixnetExecutionDatabaseStatement>();
             foreach (var tableName in tableNames)
             {
-                statements.Add(new ExecutionDatabaseStatement()
+                statements.Add(new SixnetExecutionDatabaseStatement()
                 {
-                    Script = string.Format(scriptTemplate, WrapKeywordFunc(tableName)),
+                    Script = string.Format(scriptTemplate, FormatAndWrapKeywordFunc(tableName)),
                     ScriptType = GetCommandType(command),
                     Parameters = parameters,
                     MustAffectData = true,
@@ -334,7 +341,7 @@ namespace Sixnet.Database.Oracle
         /// </summary>
         /// <param name="context">Command resolve context</param>
         /// <returns></returns>
-        protected override List<ExecutionDatabaseStatement> GenerateDeleteStatements(DataCommandResolveContext context)
+        protected override List<SixnetExecutionDatabaseStatement> GenerateDeleteStatements(SixnetDataCommandResolveContext context)
         {
             var dataCommandExecutionContext = context.DataCommandExecutionContext;
             var command = dataCommandExecutionContext.Command;
@@ -367,20 +374,20 @@ namespace Sixnet.Database.Oracle
                 var primaryKeyFields = SixnetDataManager.GetFields(DatabaseType, entityType, SixnetEntityManager.GetPrimaryKeyFields(entityType)).ToList();
                 SixnetException.ThrowIf(primaryKeyFields.IsNullOrEmpty(), $"{entityType.FullName} not set primary key");
 
-                var primaryKeyString = string.Join("||", primaryKeyFields.Select(pk => FormatField(context, command.Queryable, pk, QueryableLocation.Top, FieldLocation.Criterion, tablePetName: tablePetName)));
-                var queryStatement = GenerateQueryStatementCore(context, translationResult, QueryableLocation.UsingSource);
+                var primaryKeyString = string.Join("||", primaryKeyFields.Select(pk => FormatField(context, command.Queryable, pk, SixnetQueryableLocation.Top, SixnetFieldLocation.Criterion, tablePetName: tablePetName)));
+                var queryStatement = GenerateQueryStatementCore(context, translationResult, SixnetQueryableLocation.UsingSource);
                 scriptTemplate = $"DELETE FROM {{0}}{TablePetNameKeyword}{tablePetName} WHERE {primaryKeyString} IN (SELECT {primaryKeyString} FROM ({queryStatement.Script}){TablePetNameKeyword}{tablePetName})";
             }
 
-            var parameters = ConvertParameter(command.ScriptParameters) ?? new DataCommandParameters();
+            var parameters = ConvertParameter(command.ScriptParameters) ?? new SixnetDataCommandParameters();
             parameters.Union(context.GetParameters());
 
-            var statements = new List<ExecutionDatabaseStatement>();
+            var statements = new List<SixnetExecutionDatabaseStatement>();
             foreach (var tableName in tableNames)
             {
-                statements.Add(new ExecutionDatabaseStatement()
+                statements.Add(new SixnetExecutionDatabaseStatement()
                 {
-                    Script = string.Format(scriptTemplate, WrapKeywordFunc(tableName)),
+                    Script = string.Format(scriptTemplate, FormatAndWrapKeywordFunc(tableName)),
                     ScriptType = GetCommandType(command),
                     MustAffectData = true,
                     Parameters = parameters,
@@ -402,15 +409,15 @@ namespace Sixnet.Database.Oracle
         /// </summary>
         /// <param name="migrationCommand">Migration command</param>
         /// <returns></returns>
-        protected override List<ExecutionDatabaseStatement> GetCreateTableStatements(MigrationDatabaseCommand migrationCommand)
+        protected override List<SixnetExecutionDatabaseStatement> GetCreateTableStatements(SixnetMigrationDatabaseCommand migrationCommand)
         {
             var migrationInfo = migrationCommand.MigrationInfo;
             if (migrationInfo?.NewTables.IsNullOrEmpty() ?? true)
             {
-                return new List<ExecutionDatabaseStatement>(0);
+                return new List<SixnetExecutionDatabaseStatement>(0);
             }
             var newTables = migrationInfo.NewTables;
-            var statements = new List<ExecutionDatabaseStatement>();
+            var statements = new List<SixnetExecutionDatabaseStatement>();
             var options = migrationCommand.MigrationInfo;
             foreach (var newTableInfo in newTables)
             {
@@ -427,11 +434,11 @@ namespace Sixnet.Database.Oracle
                 foreach (var field in entityConfig.AllFields)
                 {
                     var dataField = SixnetDataManager.GetField(OracleManager.CurrentDatabaseServerType, entityType, field.Value);
-                    if (dataField is DataField dataEntityField)
+                    if (dataField is SixnetDataField dataEntityField)
                     {
                         var dataFieldName = dataEntityField.GetFieldName(DatabaseType);
                         newFieldScripts.Add($"{dataFieldName}{GetSqlDataType(dataEntityField, options)}{GetFieldNullable(dataEntityField, options)}{GetSqlDefaultValue(dataEntityField, options)}");
-                        if (dataEntityField.InRole(FieldRole.PrimaryKey))
+                        if (dataEntityField.InRole(SixnetFieldRole.PrimaryKey))
                         {
                             primaryKeyNames.Add($"{dataFieldName}");
                         }
@@ -439,8 +446,8 @@ namespace Sixnet.Database.Oracle
                 }
                 foreach (var tableName in newTableInfo.TableNames)
                 {
-                    var realTableName = OracleManager.OracleOptions.Uppercase ? tableName.ToUpper() : tableName;
-                    var createTableStatement = new ExecutionDatabaseStatement()
+                    var realTableName = FormatObjectName(tableName);
+                    var createTableStatement = new SixnetExecutionDatabaseStatement()
                     {
                         Script = $"DECLARE TB_EX NUMBER; BEGIN SELECT COUNT(*) INTO TB_EX FROM user_tables WHERE table_name = '{realTableName}'; IF TB_EX =0 THEN EXECUTE IMMEDIATE 'CREATE TABLE {realTableName} ({string.Join(",", newFieldScripts)}{(primaryKeyNames.IsNullOrEmpty() ? "" : $", CONSTRAINT PK_{realTableName} PRIMARY KEY ({string.Join(",", primaryKeyNames)})")})'; END IF; END;"
                     };
@@ -462,14 +469,14 @@ namespace Sixnet.Database.Oracle
         /// </summary>
         /// <param name="combineType">Combine type</param>
         /// <returns>Return combine operator</returns>
-        protected override string GetCombineOperator(CombineType combineType)
+        protected override string GetCombineOperator(SixnetCombineType combineType)
         {
             return combineType switch
             {
-                CombineType.UnionAll => " UNION ALL ",
-                CombineType.Union => " UNION ",
-                CombineType.Except => " MINUS ",
-                CombineType.Intersect => " INTERSECT ",
+                SixnetCombineType.UnionAll => " UNION ALL ",
+                SixnetCombineType.Union => " UNION ",
+                SixnetCombineType.Except => " MINUS ",
+                SixnetCombineType.Intersect => " INTERSECT ",
                 _ => throw new InvalidOperationException($"{DatabaseType} not support {combineType}"),
             };
         }
@@ -508,7 +515,7 @@ namespace Sixnet.Database.Oracle
         /// </summary>
         /// <param name="field">Field</param>
         /// <returns></returns>
-        protected override string GetSqlDataType(DataField field, MigrationInfo options)
+        protected override string GetSqlDataType(SixnetDataField field, SixnetMigrationInfo options)
         {
             SixnetDirectThrower.ThrowArgNullIf(field == null, nameof(field));
             var dbTypeName = "";
@@ -521,7 +528,7 @@ namespace Sixnet.Database.Oracle
                 var dbType = field.GetDataType().GetDbType();
                 var length = field.Length;
                 var precision = field.Precision;
-                var notFixedLength = options.NotFixedLength || field.HasDbFeature(FieldDbFeature.NotFixedLength);
+                var notFixedLength = options.NotFixedLength || field.HasDbFeature(SixnetFieldDbFeature.NotFixedLength);
                 static int getCharLength(int flength, int defLength) => flength < 1 ? defLength : flength;
                 switch (dbType)
                 {

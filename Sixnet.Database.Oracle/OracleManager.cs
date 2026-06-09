@@ -15,7 +15,7 @@ namespace Sixnet.Database.Oracle
         /// <summary>
         /// Gets current database server type
         /// </summary>
-        internal const DatabaseType CurrentDatabaseServerType = DatabaseType.Oracle;
+        internal const SixnetDatabaseType CurrentDatabaseServerType = SixnetDatabaseType.Oracle;
 
         /// <summary>
         /// Key word prefix
@@ -46,9 +46,9 @@ namespace Sixnet.Database.Oracle
         /// </summary>
         /// <param name="server">Database server</param>
         /// <returns>Return database connection</returns>
-        internal static IDbConnection GetConnection(DatabaseServer server)
+        internal static IDbConnection GetConnection(SixnetDatabaseServer server)
         {
-            return SixnetDataManager.GetDatabaseConnection(server) ?? new OracleConnection(server.ConnectionString);
+            return SixnetDataManager.GetDatabaseConnection(server) ?? new OracleConnection(SixnetDataManager.ResolveConnectionString(server));
         }
 
         #endregion
@@ -70,15 +70,7 @@ namespace Sixnet.Database.Oracle
 
         internal static string FormatKeyword(string originalValue)
         {
-            if (OracleOptions.Uppercase)
-            {
-                originalValue = originalValue.ToUpper();
-            }
-            if (OracleOptions.WrapWithQuotes)
-            {
-                originalValue = $"{WrapKeyword(originalValue)}";
-            }
-            return originalValue;
+            return SixnetDataManager.FormatDatabaseObjectName(CurrentDatabaseServerType, originalValue);
         }
 
         #endregion
