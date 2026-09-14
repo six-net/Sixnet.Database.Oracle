@@ -8,7 +8,7 @@ namespace Sixnet.Database.Oracle
     /// <summary>
     /// Defines oracle bulk insertion options
     /// </summary>
-    public class OracleBulkInsertionOptions : ISixnetBulkInsertionOptions
+    public class SixnetOracleBulkInsertionOptions : ISixnetBulkInsertionOptions
     {
         /// <summary>
         /// Gets or sets the data operation options
@@ -16,9 +16,9 @@ namespace Sixnet.Database.Oracle
         public SixnetDataOperationOptions DataOperationOptions { get; set; }
 
         /// <summary>
-        /// Indicates whether use transaction
+        /// Gets or sets the bulk copy options
         /// </summary>
-        public bool UseTransaction { get; set; }
+        public OracleBulkCopyOptions BulkCopyOptions { get; set; } = OracleBulkCopyOptions.Default;
 
         /// <summary>
         /// Gets or sets the column mapping

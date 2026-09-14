@@ -3,7 +3,10 @@ using System.Collections.Generic;
 using System.Data;
 using System.Linq;
 using System.Threading.Tasks;
+
 using Oracle.ManagedDataAccess.Client;
+
+using Sixnet.Development.Data;
 using Sixnet.Development.Data.Command;
 using Sixnet.Development.Data.Dapper;
 using Sixnet.Development.Data.Database;
@@ -14,11 +17,11 @@ namespace Sixnet.Database.Oracle
     /// <summary>
     /// Defines database provider implementation for oracle
     /// </summary>
-    public class OracleProvider : SixnetBaseDatabaseProvider
+    public class SixnetOracleProvider : SixnetBaseDatabaseProvider
     {
         #region Constructor
 
-        public OracleProvider()
+        public SixnetOracleProvider()
         {
             queryTablesScript = "SELECT TABLE_NAME AS \"TableName\" FROM USER_TABLES WHERE TABLE_NAME NOT LIKE '%$%' AND TABLE_NAME NOT LIKE '%LOGMNRC_%' AND TABLE_NAME NOT LIKE '%LOGMNR%' AND TABLE_NAME NOT LIKE '%SQLPLUS_%' AND TABLE_NAME!='HELP' AND TABLE_NAME!= 'REDO_DB' AND TABLE_NAME!='REDO_LOG' AND TABLE_NAME!='SCHEDULER_PROGRAM_ARGS_TBL' AND TABLE_NAME!='SCHEDULER_JOB_ARGS_TBL'";
         }
@@ -34,7 +37,23 @@ namespace Sixnet.Database.Oracle
         /// <returns></returns>
         public override IDbConnection GetDbConnection(SixnetDatabaseServer server)
         {
-            return OracleManager.GetConnection(server);
+            return SixnetOracleManager.GetConnection(server);
+        }
+
+        /// <summary>
+        /// Get db connection meta
+        /// </summary>
+        /// <param name="connection"></param>
+        /// <returns></returns>
+        public override SixnetDatabaseConnectionMeta GetDbConnectionMeta(IDbConnection connection)
+        {
+            var sqlBuilder = new OracleConnectionStringBuilder(connection.ConnectionString);
+            return new SixnetDatabaseConnectionMeta()
+            {
+                UserName = sqlBuilder.UserID,
+                Password = sqlBuilder.Password,
+                DataSource = sqlBuilder.DataSource
+            };
         }
 
         #endregion
@@ -45,9 +64,9 @@ namespace Sixnet.Database.Oracle
         /// Get data command resolver
         /// </summary>
         /// <returns></returns>
-        protected override ISixnetDataCommandResolver GetDataCommandResolver()
+        protected override ISixnetDataCommandResolver GetDataCommandResolver(SixnetDatabaseCommand command)
         {
-            return OracleManager.GetCommandResolver();
+            return SixnetOracleManager.GetCommandResolver();
         }
 
         #endregion
@@ -59,9 +78,9 @@ namespace Sixnet.Database.Oracle
         /// </summary>
         /// <param name="parameters">Data command parameters</param>
         /// <returns></returns>
-        protected override DynamicParameters ConvertDataCommandParameters(SixnetDataCommandParameters parameters)
+        protected override DynamicParameters ConvertDataCommandParameters(SixnetDatabaseCommand command, SixnetDataCommandParameters parameters)
         {
-            return parameters?.ConvertToDynamicParameters(OracleManager.CurrentDatabaseServerType);
+            return parameters?.ConvertToDynamicParameters(SixnetDatabaseType.Oracle);
         }
 
         #endregion
@@ -75,7 +94,7 @@ namespace Sixnet.Database.Oracle
         /// <returns>Added data identities,Key: command id, Value: identity value</returns>
         public override Dictionary<string, TIdentity> InsertAndReturnIdentity<TIdentity>(SixnetMultipleDatabaseCommand command)
         {
-            var dataCommandResolver = GetDataCommandResolver() as OracleDataCommandResolver;
+            var dataCommandResolver = GetDataCommandResolver(command) as SixnetOracleDataCommandResolver;
             var statements = dataCommandResolver.GenerateDatabaseExecutionStatements(command);
             var identityDict = new Dictionary<string, TIdentity>();
             var dbConnection = command.Connection.DbConnection;
@@ -104,7 +123,7 @@ namespace Sixnet.Database.Oracle
         /// <returns>Added data identities,Key: command id, Value: identity value</returns>
         public override async Task<Dictionary<string, TIdentity>> InsertAndReturnIdentityAsync<TIdentity>(SixnetMultipleDatabaseCommand command)
         {
-            var dataCommandResolver = GetDataCommandResolver() as OracleDataCommandResolver;
+            var dataCommandResolver = GetDataCommandResolver(command) as SixnetOracleDataCommandResolver;
             var statements = dataCommandResolver.GenerateDatabaseExecutionStatements(command);
             var identityDict = new Dictionary<string, TIdentity>();
             var dbConnection = command.Connection.DbConnection;
@@ -133,9 +152,7 @@ namespace Sixnet.Database.Oracle
         /// <summary>
         /// Bulk insert datas
         /// </summary>
-        /// <param name="server">Database server</param>
-        /// <param name="dataTable">Data table</param>
-        /// <param name="bulkInsertOptions">Insert options</param>
+        /// <param name="command">Command</param>
         public override async Task BulkInsertAsync(SixnetBulkInsertDatabaseCommand command)
         {
             BulkInsert(command);
@@ -145,9 +162,7 @@ namespace Sixnet.Database.Oracle
         /// <summary>
         /// Bulk insert datas
         /// </summary>
-        /// <param name="server">Database server</param>
-        /// <param name="dataTable">Data table</param>
-        /// <param name="bulkInsertOptions">Insert options</param>
+        /// <param name="command">Command</param>
         public override void BulkInsert(SixnetBulkInsertDatabaseCommand command)
         {
             try
@@ -155,21 +170,21 @@ namespace Sixnet.Database.Oracle
                 var dataTable = command.DataTable;
                 SixnetDirectThrower.ThrowArgNullIf(dataTable == null, nameof(SixnetBulkInsertDatabaseCommand.DataTable));
 
-                var oracleBulkInsertOptions = command.BulkInsertionOptions as OracleBulkInsertionOptions;
-                oracleBulkInsertOptions ??= new OracleBulkInsertionOptions();
+                var oracleBulkInsertOptions = command.BulkInsertionOptions as SixnetOracleBulkInsertionOptions;
+                oracleBulkInsertOptions ??= new SixnetOracleBulkInsertionOptions();
                 var conn = command.Connection.DbConnection as OracleConnection;
+                var oracleResolver = SixnetOracleManager.GetCommandResolver();
+
                 using (var oracleBulkCopy = new OracleBulkCopy(conn))
                 {
                     oracleBulkCopy.DestinationTableName = dataTable.TableName;
-                    if (oracleBulkInsertOptions.UseTransaction)
-                    {
-                        oracleBulkCopy.BulkCopyOptions = OracleBulkCopyOptions.UseInternalTransaction;
-                    }
+                    oracleBulkCopy.BulkCopyOptions = oracleBulkInsertOptions.BulkCopyOptions;
+
                     if (!oracleBulkInsertOptions.ColumnMappings.IsNullOrEmpty())
                     {
                         oracleBulkInsertOptions.ColumnMappings.ForEach(c =>
                         {
-                            c.DestinationColumn = OracleManager.FormatKeyword(c.DestinationColumn);
+                            c.DestinationColumn = oracleResolver.FormatAndWrapObjectName(SixnetDatabaseObjectName.Create(c.DestinationColumn, SixnetDatabaseObjectType.Column));
                             oracleBulkCopy.ColumnMappings.Add(c);
                         });
                     }
@@ -177,8 +192,8 @@ namespace Sixnet.Database.Oracle
                     {
                         foreach (DataColumn column in dataTable.Columns)
                         {
-                            string destName = column.ColumnName;
-                            destName = OracleManager.FormatKeyword(destName);
+                            var destName = column.ColumnName;
+                            destName = oracleResolver.FormatAndWrapObjectName(SixnetDatabaseObjectName.Create(destName, SixnetDatabaseObjectType.Column));
                             oracleBulkCopy.ColumnMappings.Add(new OracleBulkCopyColumnMapping()
                             {
                                 SourceColumn = column.ColumnName,
@@ -198,7 +213,7 @@ namespace Sixnet.Database.Oracle
                     {
                         oracleBulkCopy.NotifyAfter = oracleBulkInsertOptions.NotifyAfter;
                     }
-                    oracleBulkCopy.DestinationTableName = OracleManager.FormatKeyword(oracleBulkCopy.DestinationTableName);
+                    oracleBulkCopy.DestinationTableName = oracleResolver.FormatAndWrapObjectName(SixnetDatabaseObjectName.Create(oracleBulkCopy.DestinationTableName, SixnetDatabaseObjectType.Table));
                     oracleBulkCopy.WriteToServer(dataTable);
                 }
             }

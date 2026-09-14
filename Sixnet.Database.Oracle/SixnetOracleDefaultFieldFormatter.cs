@@ -8,7 +8,7 @@ namespace Sixnet.Database.Oracle
     /// <summary>
     /// Default default field formatter for oracle
     /// </summary>
-    public class OracleDefaultFieldFormatter : ISixnetFieldFormatter
+    public class SixnetOracleDefaultFieldFormatter : ISixnetFieldFormatter
     {
         public string Format(SixnetFormatFieldContext context)
         {
@@ -84,7 +84,7 @@ namespace Sixnet.Database.Oracle
                 SixnetFieldFormatterNames.MATH_POW => $"POWER({formatedFieldName}, {parameterString})",
                 SixnetFieldFormatterNames.MATH_SQRT => $"SQRT({formatedFieldName})",
                 SixnetFieldFormatterNames.MATH_EXP => $"EXP({formatedFieldName})",
-                SixnetFieldFormatterNames.MATH_LOG => $"LOG({parameterString}, {formatedFieldName})", // 注意顺序
+                SixnetFieldFormatterNames.MATH_LOG => $"LOG({parameterString}, {formatedFieldName})",
                 SixnetFieldFormatterNames.MATH_COS => $"COS({formatedFieldName})",
                 SixnetFieldFormatterNames.MATH_SIN => $"SIN({formatedFieldName})",
                 SixnetFieldFormatterNames.MATH_TAN => $"TAN({formatedFieldName})",
@@ -94,7 +94,9 @@ namespace Sixnet.Database.Oracle
                 SixnetFieldFormatterNames.MATH_ATAN2 => $"ATAN2({formatedFieldName}, {parameterString})",
                 SixnetFieldFormatterNames.STRING_INDEX_OF => StringIndexOf(formatedFieldName, formatOption.Parameter),
                 SixnetFieldFormatterNames.STRING_LAST_INDEX_OF => StringLastIndexOf(formatedFieldName, formatOption.Parameter),
-                _ => throw new SixnetException($"{OracleManager.CurrentDatabaseServerType} does not support field formatter: {formatOption.Name}"),
+                SixnetFieldFormatterNames.EXISTS => $"EXISTS{formatedFieldName}",
+                SixnetFieldFormatterNames.NOT_EXISTS => $"NOT EXISTS{formatedFieldName}",
+                _ => throw new SixnetException($"{context.Server.DatabaseType} does not support field formatter: {formatOption.Name}"),
             };
             return formatedFieldName;
         }
