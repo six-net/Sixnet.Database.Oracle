@@ -1020,8 +1020,8 @@ WHERE OWNER = '{parameter.Schema}' AND OBJECT_TYPE = 'PROCEDURE';
             else
             {
                 var dbType = field.GetDataType().GetDbType();
-                var length = field.Length;
-                var precision = field.Precision;
+                var length = field.DbLength;
+                var precision = field.DbPrecision;
                 var notFixedLength = options.NotFixedLength || field.HasDbFeature(SixnetFieldDbFeature.NotFixedLength);
                 static int getCharLength(int flength, int defLength) => flength < 1 ? defLength : flength;
                 switch (dbType)
@@ -1118,12 +1118,12 @@ WHERE OWNER = '{parameter.Schema}' AND OBJECT_TYPE = 'PROCEDURE';
             {
                 return string.Empty;
             }
-            var startValue = field.StartValue;
+            var startValue = field.DbStartValue;
             if (startValue == 0)
             {
                 startValue = 1;
             }
-            var incrementValue = field.IncrementValue;
+            var incrementValue = field.DbIncrementValue;
             if (incrementValue == 0)
             {
                 incrementValue = 1;
