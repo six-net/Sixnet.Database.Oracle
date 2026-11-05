@@ -531,7 +531,7 @@ BEGIN
 
     IF v_count = 0 THEN
         EXECUTE IMMEDIATE
-            'ALTER TABLE {WrapObjectName(formattedTableName)} ADD {WrapObjectName(dataFieldName).Name} {GetFieldDefinition(field, command.MigrationInfo)}';
+            'ALTER TABLE {WrapObjectName(formattedTableName)} ADD {WrapObjectName(dataFieldName).Name} {GetFieldDefinition(table, field, command.MigrationInfo)}';
     END IF;
 END;";
                 scripts.Add(script);
@@ -614,7 +614,7 @@ BEGIN
 
     IF v_count > 0 THEN
         EXECUTE IMMEDIATE
-            'ALTER TABLE {WrapObjectName(formattedTableName)} MODIFY {WrapObjectName(nowFormatedFieldName).Name} {GetFieldDefinition(field, command.MigrationInfo)}';
+            'ALTER TABLE {WrapObjectName(formattedTableName)} MODIFY {WrapObjectName(nowFormatedFieldName).Name} {GetFieldDefinition(table, field, command.MigrationInfo)}';
     END IF;
 END;";
 
